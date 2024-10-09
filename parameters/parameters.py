@@ -1,6 +1,6 @@
 # PARAMETERS
 # These are values to loop through for different runs
-poi_source = "grid" # railwaystation, grid
+poi_source = "grid" # railwaystation, grid, neighbourhoods
 prune_measure = "betweenness" # betweenness, closeness, random
 
 SERVER = False # Whether the code runs on the server (important to avoid parallel job conflicts)
