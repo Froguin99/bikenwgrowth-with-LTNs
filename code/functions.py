@@ -954,6 +954,11 @@ def calculate_efficiency_global(G, numnodepairs = 500, normalized = True):
         nodeindices = list(G.vs.indices)
     d_ij = G.shortest_paths(source = nodeindices, target = nodeindices, weights = "weight")
     d_ij = [item for sublist in d_ij for item in sublist] # flatten
+
+    ### Check if d_ij contains valid distances
+    if not d_ij: return 0  # No distances available
+    ###
+
     EG = sum([1/d for d in d_ij if d != 0])
     if not normalized: return EG
     pairs = list(itertools.permutations(nodeindices, 2))
@@ -961,16 +966,22 @@ def calculate_efficiency_global(G, numnodepairs = 500, normalized = True):
     l_ij = dist_vector([(G.vs[p[0]]["y"], G.vs[p[0]]["x"]) for p in pairs],
                             [(G.vs[p[1]]["y"], G.vs[p[1]]["x"]) for p in pairs]) # must be in format lat,lon = y,x
     EG_id = sum([1/l for l in l_ij if l != 0])
-    # if (EG / EG_id) > 1: # This should not be allowed to happen!
-    #     pp.pprint(d_ij)
-    #     pp.pprint(l_ij)
-    #     pp.pprint([e for e in G.es])
-    #     print(pairs)
-    #     print([(G.vs[p[0]]["y"], G.vs[p[0]]["x"]) for p in pairs],
+    
+    # re comment this block later
+    #if (EG / EG_id) > 1: # This should not be allowed to happen!
+    #    pp.pprint(d_ij)
+    #    pp.pprint(l_ij)
+    #    pp.pprint([e for e in G.es])
+    #    print(pairs)
+    #    print([(G.vs[p[0]]["y"], G.vs[p[0]]["x"]) for p in pairs],
     #                         [(G.vs[p[1]]["y"], G.vs[p[1]]["x"]) for p in pairs]) # must be in format lat,lon = y,x
-    #     print(EG, EG_id)
-    #     sys.exit()
+    #    print(EG, EG_id)
+    #   sys.exit()
     # assert EG / EG_id <= 1, "Normalized EG > 1. This should not be possible."
+
+
+
+
     return EG / EG_id
 
 
@@ -1038,7 +1049,8 @@ def calculate_metrics(G, GT_abstract, G_big, nnids, calcmetrics = {"length":0,
             try:
                 output["efficiency_global_routed"] = calculate_efficiency_global(simplify_ig(G), numnodepairs)
             except:
-                print("Problem with efficiency_global_routed.") # This try is needed for some pathological cases, for example loops generating empty graphs (only happened in Zurich, railwaystation/closeness)
+                print("Problem with efficiency_global_routed.") 
+                #  This try is needed for some pathological cases, for example loops generating empty graphs (only happened in Zurich, railwaystation/closeness)
                 pass
         if "efficiency_local_routed" in calcmetrics:
             try:
