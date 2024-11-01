@@ -1,6 +1,8 @@
-# Growing Urban Bicycle Networks
+# Growing Urban Bicycle Networks - with an LTN twist
 
-This is the source code for the scientific paper [*Growing urban bicycle networks*](https://www.nature.com/articles/s41598-022-10783-y) by [M. Szell](http://michael.szell.net/), S. Mimar, T. Perlman, [G. Ghoshal](http://gghoshal.pas.rochester.edu/), and [R. Sinatra](http://www.robertasinatra.com/). The code downloads and pre-processes data from OpenStreetMap, prepares points of interest, runs simulations, measures and saves the results, creates videos and plots. 
+This is code modified from the scientific paper [*Growing urban bicycle networks*](https://www.nature.com/articles/s41598-022-10783-y) by [M. Szell](http://michael.szell.net/), S. Mimar, T. Perlman, [G. Ghoshal](http://gghoshal.pas.rochester.edu/), and [R. Sinatra](http://www.robertasinatra.com/). It adapts the code to work with Low Traffic Neighbourhoods, in order to reduce the amount of kilometers of investment required whilst still providing a connected network plan. The LTNs are sourced from this project: [https://github.com/Froguin99/LTN-Detection](https://github.com/Froguin99/LTN-Detection). 
+
+The code downloads and pre-processes data from OpenStreetMap, prepares points of interest, runs simulations, measures and saves the results, creates videos and plots. 
 
 **Paper**: [https://www.nature.com/articles/s41598-022-10783-y](https://www.nature.com/articles/s41598-022-10783-y)  
 **Data repository**: [zenodo.5083049](https://zenodo.org/record/5083049)  
