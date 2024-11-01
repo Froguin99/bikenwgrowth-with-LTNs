@@ -214,40 +214,128 @@ def dist_vector(v1_list, v2_list):
     dist_list = haversine_vector(v1_list, v2_list, unit="m") # [(lat,lon)], [(lat,lon)]
     return dist_list
 
-def osm_to_ig(node, edge):
+def osm_to_ig(node, edge, weighting):
     """ Turns a node and edge dataframe into an igraph Graph.
     """
-    
-    G = ig.Graph(directed = False)
-
+    G = ig.Graph(directed=False)
     x_coords = node['x'].tolist() 
     y_coords = node['y'].tolist()
     ids = node['osmid'].tolist()
     coords = []
 
     for i in range(len(x_coords)):
-        G.add_vertex(x = x_coords[i], y = y_coords[i], id = ids[i])
+        G.add_vertex(x=x_coords[i], y=y_coords[i], id=ids[i])
         coords.append((x_coords[i], y_coords[i]))
 
     id_dict = dict(zip(G.vs['id'], np.arange(0, G.vcount()).tolist()))
     coords_dict = dict(zip(np.arange(0, G.vcount()).tolist(), coords))
 
     edge_list = []
-    edge_info = {}
-    edge_info["weight"] = []
-    edge_info["osmid"] = []
+    edge_info = {
+        "weight": [],
+        "osmid": [],
+        # Only include ori_length if weighting is True
+        "ori_length": [] if weighting else None  
+    }
+    
     for i in range(len(edge)):
         edge_list.append([id_dict.get(edge['u'][i]), id_dict.get(edge['v'][i])])
         edge_info["weight"].append(round(edge['length'][i], 10))
         edge_info["osmid"].append(edge['osmid'][i])
+        
+        if weighting:  # Only add ori_length if weighting is True
+            edge_info["ori_length"].append(edge['ori_length'][i])  # Store the original length
 
-    G.add_edges(edge_list) # attributes = edge_info doesn't work although it should: https://igraph.org/python/doc/igraph.Graph-class.html#add_edges
+    G.add_edges(edge_list)  # Add edges without attributes
     for i in range(len(edge)):
         G.es[i]["weight"] = edge_info["weight"][i]
         G.es[i]["osmid"] = edge_info["osmid"][i]
+        
+        if weighting:  # Set the original length only if weighting is True
+            G.es[i]["ori_length"] = edge_info["ori_length"][i]
 
     G.simplify(combine_edges=max)
     return G
+
+
+## Old 
+# def osm_to_ig(node, edge, weighting=None):
+#     """ Turns a node and edge dataframe into an igraph Graph. """
+    
+#     G = ig.Graph(directed=False)
+
+#     # Print first few rows of edge dataframe
+#     print("First 5 edges with lengths and maxspeeds:")
+#     print(edge[['u', 'v', 'length', 'maxspeed']].head())
+
+#     x_coords = node['x'].tolist() 
+#     y_coords = node['y'].tolist()
+#     ids = node['osmid'].tolist()
+#     coords = []
+
+#     for i in range(len(x_coords)):
+#         G.add_vertex(x=x_coords[i], y=y_coords[i], id=ids[i])
+#         coords.append((x_coords[i], y_coords[i]))
+
+#     id_dict = dict(zip(G.vs['id'], np.arange(0, G.vcount()).tolist()))
+#     coords_dict = dict(zip(np.arange(0, G.vcount()).tolist(), coords))
+
+#     edge_list = []
+#     edge_info = {"weight": [], "osmid": []}
+
+#     if weighting:
+#         print("Applying weighted calculation to edges.")
+#         for i in range(len(edge)):
+#             u, v = edge['u'][i], edge['v'][i]
+#             edge_list.append([id_dict.get(u), id_dict.get(v)])
+#             length = edge['length'][i]
+
+#             try:
+#                 speed_limit = int(str(edge['maxspeed'][i]).split()[0]) if pd.notnull(edge['maxspeed'][i]) else 30
+#             except (ValueError, IndexError):
+#                 speed_limit = 30
+
+#             weight = (length * (speed_limit / 10)) * 10000
+#             edge_info["weight"].append(round(weight, 10))
+#             edge_info["osmid"].append(edge['osmid'][i])
+#     else:
+#         print("Applying unweighted calculation to edges.")
+#         for i in range(len(edge)):
+#             edge_list.append([id_dict.get(edge['u'][i]), id_dict.get(edge['v'][i])])
+#             edge_info["weight"].append(round(edge['length'][i], 10))
+#             edge_info["osmid"].append(edge['osmid'][i])
+
+#     # Debug: Print edge list
+#     #print("Edge list:", edge_list)
+
+#     G.add_edges(edge_list)
+    
+#     # Check that the edge count matches
+#     print(f"Number of edges in edge_list: {len(edge_list)}, edges in graph: {G.ecount()}")
+
+#     for i in range(len(edge_list)):
+#         G.es[i]["weight"] = edge_info["weight"][i]
+#         G.es[i]["osmid"] = edge_info["osmid"][i]
+
+#     # Debug: Print final edge weights
+#     print("Final edge weights after assignment:")
+#     print(G.es["weight"][:5])  # Check first few for validation
+
+#     G.simplify(combine_edges=max)
+
+#     # Assuming edges is a DataFrame or a list of your edges
+#     for index, edge in enumerate(edges.itertuples()):
+#         length = edge.length
+#         speed_limit = edge.maxspeed
+#         weight = length * (3600 / speed_limit)  # Calculate the weight based on length and speed
+
+#         # Print only the first 15 edges
+#         if index < 15:
+#             print(f"Edge ID: {index}, Length: {length}, Speed limit: {speed_limit}, Calculated weight: {weight}")
+#         # Add the weight to the graph here
+
+#     return G
+
 
 
 def compress_file(p, f, filetype = ".csv", delete_uncompressed = True):
@@ -331,8 +419,22 @@ def csv_to_ox(p, placeid, parameterid):
         os.remove(p + prefix + '_edges.csv')
     return G
 
+def calculate_weight(row):
+    """
+    Calculate new weight based on length and speed limit.
+    """
+    # Default speed limit is 30 mph if 'maxspeed' is missing or NaN
+    if pd.isna(row['maxspeed']):
+        speed_factor = 3  # Corresponding to 30 mph
+    else:
+        speed_factor = int(str(row['maxspeed']).split()[0][0])  # Extract first digit from the speed. 
+        # This presumes no speed limit over 99, which is reasonable for most roads.
+        # however this could produce issues in some countries with speed limits over 100 km/h?
+    
+    # Multiply the speed factor by the length to get the new weight
+    return row['length'] * speed_factor
 
-def csv_to_ig(p, placeid, parameterid, cleanup = True):
+def csv_to_ig(p, placeid, parameterid, cleanup=True, weighting=None):
     """ Load an ig graph from _edges.csv and _nodes.csv
     The edge file must have attributes u,v,osmid,length
     The node file must have attributes y,x,osmid
@@ -346,15 +448,26 @@ def csv_to_ig(p, placeid, parameterid, cleanup = True):
         e = pd.read_csv(p + prefix + '_edges.csv')
     except:
         empty = True
-    if compress and cleanup and not SERVER: # do not clean up on the server as csv is needed in parallel jobs
+
+    if compress and cleanup and not SERVER:  # Do not clean up on the server as csv is needed in parallel jobs
         os.remove(p + prefix + '_nodes.csv')
         os.remove(p + prefix + '_edges.csv')
+
     if empty:
-        return ig.Graph(directed = False)
-    G = osm_to_ig(n, e)
+        return ig.Graph(directed=False)
+
+    if weighting:
+        # Process the edges to modify length based on speed limits
+        e['maxspeed'] = e['maxspeed'].str.replace(' mph', '', regex=False).astype(float)
+        e['maxspeed'].fillna(20, inplace=True)  # Assign default speed of 20 where NaN
+        e['ori_length'] = e['length']  # Store original length only if weighting is True
+        e['length'] = e['length'] * e['maxspeed']  # Modify the length based on speed
+
+    G = osm_to_ig(n, e, weighting)  # Pass weighting to osm_to_ig
     round_coordinates(G)
     mirror_y(G)
     return G
+
 
 
 def ig_to_geojson(G):
@@ -589,7 +702,7 @@ def clusterpairs_by_distance(G, G_total, clusters, clusterinfo, return_distances
         return [[o[0], o[1]] for o in clusterpairs]
 
 
-def mst_routing(G, pois):
+def mst_routing(G, pois, weighting=None):
     """Minimum Spanning Tree (MST) of a graph G's node subset pois,
     then routing to connect the MST.
     G is an ipgraph graph, pois is a list of node ids.
@@ -611,7 +724,7 @@ def mst_routing(G, pois):
     for e in G_temp.es: # delete all edges
         G_temp.es.delete(e)
         
-    poipairs = poipairs_by_distance(G, pois, True)
+    poipairs = poipairs_by_distance(G, pois, weighting, True)
     if len(poipairs) == 0: return (ig.Graph(), ig.Graph())
 
     MST_abstract = copy.deepcopy(G_temp.subgraph(pois_indices))
@@ -682,7 +795,14 @@ def greedy_triangulation(GT, poipairs, prune_quantile = 1, prune_measure = "betw
     return GT
 
 
-def greedy_triangulation_routing(G, pois, prune_quantiles = [1], prune_measure = "betweenness"):
+def restore_original_lengths(G):
+    """Restore original lengths from the 'ori_length' attribute."""
+    for e in G.es:
+        e["weight"] = e["ori_length"]
+ 
+
+
+def greedy_triangulation_routing(G, pois, weighting=None, prune_quantiles = [1], prune_measure = "betweenness"):
     """Greedy Triangulation (GT) of a graph G's node subset pois,
     then routing to connect the GT (up to a quantile of betweenness
     betweenness_quantile).
@@ -707,7 +827,7 @@ def greedy_triangulation_routing(G, pois, prune_quantiles = [1], prune_measure =
     for e in G_temp.es: # delete all edges
         G_temp.es.delete(e)
         
-    poipairs = poipairs_by_distance(G, pois, True)
+    poipairs = poipairs_by_distance(G, pois, weighting, True)
     if len(poipairs) == 0: return ([], [])
 
     if prune_measure == "random":
@@ -740,7 +860,12 @@ def greedy_triangulation_routing(G, pois, prune_quantiles = [1], prune_measure =
         GT_indices = set()
         for poipair, poipair_distance in routenodepairs:
             poipair_ind = (G.vs.find(id = poipair[0]).index, G.vs.find(id = poipair[1]).index)
+            # debug
+            #print(f"Edge weights before routing: {G.es['weight'][:10]}")  # Prints first 10 weights
+            #print(f"Routing between: {poipair[0]} and {poipair[1]} with distance: {poipair_distance}")
             sp = set(G.get_shortest_paths(poipair_ind[0], poipair_ind[1], weights = "weight", output = "vpath")[0])
+            #print(f"Shortest path between {poipair[0]} and {poipair[1]}: {sp}")
+
             GT_indices = GT_indices.union(sp)
 
         GT = G.induced_subgraph(GT_indices)
@@ -749,10 +874,12 @@ def greedy_triangulation_routing(G, pois, prune_quantiles = [1], prune_measure =
     return (GTs, GT_abstracts)
     
     
-def poipairs_by_distance(G, pois, return_distances = False):
+def poipairs_by_distance(G, pois, weighting=None, return_distances = False):
     """Calculates the (weighted) graph distances on G for a subset of nodes pois.
     Returns all pairs of poi ids in ascending order of their distance. 
     If return_distances, then distances are also returned.
+    If we are using a weighted graph, we need to calculate the distances using orignal
+    edge lengths rather than adjusted weighted lengths.
     """
     
     # Get poi indices
@@ -772,9 +899,14 @@ def poipairs_by_distance(G, pois, return_distances = False):
     for paths_n, paths_e in zip(poi_nodes, poi_edges):
         for path_n, path_e in zip(paths_n, paths_e):
             # Sum up distances of path segments from first to last node
-            path_dist = sum([G.es[e]['weight'] for e in path_e])
+            if weighting:
+                # Use the 'weight' for finding the shortest path
+                path_dist = sum([G.es[e]['ori_length'] for e in path_e])  # Use 'ori_length' for distance
+            else:
+                path_dist = sum([G.es[e]['weight'] for e in path_e])  # Fallback to 'weight' if weighting is False
+            
             if path_dist > 0:
-                poi_dist[(path_n[0],path_n[-1])] = path_dist
+                poi_dist[(path_n[0], path_n[-1])] = path_dist
             
     temp = sorted(poi_dist.items(), key = lambda x: x[1])
     # Back to ids
@@ -1005,32 +1137,22 @@ def calculate_efficiency_local(G, numnodepairs = 500, normalized = True):
             EGi.append(calculate_efficiency_global(G_induced, numnodepairs, normalized))
     return listmean(EGi)
 
+def calculate_metrics(
+    G, GT_abstract, G_big, nnids, calcmetrics={"length": 0, "length_lcc": 0, "coverage": 0, "directness": 0,
+                                               "directness_lcc": 0, "poi_coverage": 0, "components": 0,
+                                               "overlap_biketrack": 0, "overlap_bikeable": 0, "efficiency_global": 0,
+                                               "efficiency_local": 0, "directness_lcc_linkwise": 0,
+                                               "directness_all_linkwise": 0, "overlap_neighbourhood": 0},
+    buffer_walk=500, numnodepairs=500, verbose=False, return_cov=True, G_prev=ig.Graph(),
+    cov_prev=Polygon(), ignore_GT_abstract=False, Gexisting={}, Gneighbourhoods=None
+):
+    """Calculates all metrics (using the keys from calcmetrics)."""
 
-def calculate_metrics(G, GT_abstract, G_big, nnids, calcmetrics = {"length":0,
-          "length_lcc":0,
-          "coverage": 0,
-          "directness": 0,
-          "directness_lcc": 0,
-          "poi_coverage": 0,
-          "components": 0,
-          "overlap_biketrack": 0,
-          "overlap_bikeable": 0,
-          "efficiency_global": 0,
-          "efficiency_local": 0,
-          "directness_lcc_linkwise": 0,
-          "directness_all_linkwise": 0
-         }, buffer_walk = 500, numnodepairs = 500, verbose = False, return_cov = True, G_prev = ig.Graph(), cov_prev = Polygon(), ignore_GT_abstract = False, Gexisting = {}):
-    """Calculates all metrics (using the keys from calcmetrics).
-    """
-    
-    output = {}
-    for key in calcmetrics:
-        output[key] = 0
+    output = {key: 0 for key in calcmetrics}
     cov = Polygon()
 
     # Check that the graph has links (sometimes we have an isolated node)
     if G.ecount() > 0 and GT_abstract.ecount() > 0:
-
         # Get LCC
         cl = G.clusters()
         LCC = cl.giant()
@@ -1050,14 +1172,11 @@ def calculate_metrics(G, GT_abstract, G_big, nnids, calcmetrics = {"length":0,
                 output["efficiency_global_routed"] = calculate_efficiency_global(simplify_ig(G), numnodepairs)
             except:
                 print("Problem with efficiency_global_routed.") 
-                #  This try is needed for some pathological cases, for example loops generating empty graphs (only happened in Zurich, railwaystation/closeness)
-                pass
         if "efficiency_local_routed" in calcmetrics:
             try:
                 output["efficiency_local_routed"] = calculate_efficiency_local(simplify_ig(G), numnodepairs)
             except:
-                print("Problem with efficiency_local_routed.") # This try is needed for some pathological cases, for example loops generating empty graphs (only happened in Zurich, railwaystation/closeness)
-                pass
+                print("Problem with efficiency_local_routed.")
 
         # LENGTH
         if verbose and ("length" in calcmetrics or "length_lcc" in calcmetrics): print("Calculating length...")
@@ -1072,21 +1191,29 @@ def calculate_metrics(G, GT_abstract, G_big, nnids, calcmetrics = {"length":0,
         # COVERAGE
         if "coverage" in calcmetrics:
             if verbose: print("Calculating coverage...")
-            # G_added = G.difference(G_prev) # This doesnt work
             covered_area, cov = calculate_coverage_edges(G, buffer_walk, return_cov, G_prev, cov_prev)
             output["coverage"] = covered_area
+
             # OVERLAP WITH EXISTING NETS
             if Gexisting:
                 if "overlap_biketrack" in calcmetrics:
                     try:
                         output["overlap_biketrack"] = edge_lengths(intersect_igraphs(Gexisting["biketrack"], G))
-                    except: # If there is not bike infrastructure, set to zero
+                    except:  # If there is not bike infrastructure, set to zero
                         output["overlap_biketrack"] = 0
                 if "overlap_bikeable" in calcmetrics:
                     try:
                         output["overlap_bikeable"] = edge_lengths(intersect_igraphs(Gexisting["bikeable"], G))
-                    except: # If there is not bikeable infrastructure, set to zero
+                    except:  # If there is not bikeable infrastructure, set to zero
                         output["overlap_bikeable"] = 0
+
+        # OVERLAP WITH NEIGHBOURHOOD NETWORK
+        if Gneighbourhoods and "overlap_neighbourhood" in calcmetrics:
+            if verbose: print("Calculating overlap_neighbourhood...")
+            try:
+                output["overlap_neighbourhood"] = edge_lengths(intersect_igraphs(Gneighbourhoods, G))
+            except:  # If there are issues with intersecting graphs, set to zero
+                output["overlap_neighbourhood"] = 0
 
         # POI COVERAGE
         if "poi_coverage" in calcmetrics:
@@ -1119,13 +1246,14 @@ def calculate_metrics(G, GT_abstract, G_big, nnids, calcmetrics = {"length":0,
         if "directness_all_linkwise" in calcmetrics:
             if "directness_lcc_linkwise" in calcmetrics and len(cl) <= 1:
                 output["directness_all_linkwise"] = output["directness_lcc_linkwise"]
-            else: # we have >1 components
-                output["directness_all_linkwise"] = calculate_directness_linkwise(G, numnodepairs) # number of components is checked within calculate_directness_linkwise()
+            else:  # we have >1 components
+                output["directness_all_linkwise"] = calculate_directness_linkwise(G, numnodepairs)
 
     if return_cov: 
-        return (output, cov)
+        return output, cov
     else:
         return output
+
 
 
 def overlap_linepoly(l, p):
@@ -1192,92 +1320,40 @@ def intersect_igraphs(G1, G2):
     return G_inter
 
 
-def calculate_metrics_additively(Gs, GT_abstracts, prune_quantiles, G_big, nnids, buffer_walk = 500, numnodepairs = 500, verbose = False, return_cov = True, Gexisting = {}, output = {
-            "length":[],
-            "length_lcc":[],
-            "coverage": [],
-            "directness": [],
-            "directness_lcc": [],
-            "poi_coverage": [],
-            "components": [],
-            "overlap_biketrack": [],
-            "overlap_bikeable": [],
-            "efficiency_global": [],
-            "efficiency_local": [],
-            "efficiency_global_routed": [],
-            "efficiency_local_routed": [],
-            "directness_lcc_linkwise": [],
-            "directness_all_linkwise": []        
-            }):
+def calculate_metrics_additively(
+    Gs, GT_abstracts, prune_quantiles, G_big, nnids, buffer_walk=500, numnodepairs=500, verbose=False, 
+    return_cov=True, Gexisting={}, Gneighbourhoods=None,
+    output={
+        "length": [], "length_lcc": [], "coverage": [], "directness": [], "directness_lcc": [],
+        "poi_coverage": [], "components": [], "overlap_biketrack": [], "overlap_bikeable": [],
+        "efficiency_global": [], "efficiency_local": [], "efficiency_global_routed": [], 
+        "efficiency_local_routed": [], "directness_lcc_linkwise": [], "directness_all_linkwise": [],
+        "overlap_neighbourhood": []  # Add the new metric here
+    }
+):
     """Calculates all metrics, additively. 
     Coverage differences are calculated in every step instead of the whole coverage.
     """
 
     # BICYCLE NETWORKS
-    covs = {} # covers using buffer_walk
+    covs = {}  # Covers using buffer_walk
     cov_prev = Polygon()
     GT_prev = ig.Graph()
-    for GT, GT_abstract, prune_quantile in zip(Gs, GT_abstracts, tqdm(prune_quantiles, desc = "Bicycle networks", leave = False)):
+
+    for GT, GT_abstract, prune_quantile in zip(Gs, GT_abstracts, tqdm(prune_quantiles, desc="Bicycle networks", leave=False)):
         if verbose: print("Calculating bike network metrics for quantile " + str(prune_quantile))
-        metrics, cov = calculate_metrics(GT, GT_abstract, G_big, nnids, output, buffer_walk, numnodepairs, verbose, return_cov, GT_prev, cov_prev, False, Gexisting)
-        
+        metrics, cov = calculate_metrics(
+            GT, GT_abstract, G_big, nnids, output, buffer_walk, numnodepairs, verbose, 
+            return_cov, GT_prev, cov_prev, False, Gexisting, Gneighbourhoods
+        )
+
         for key in output.keys():
             output[key].append(metrics[key])
         covs[prune_quantile] = cov
         cov_prev = copy.deepcopy(cov)
         GT_prev = copy.deepcopy(GT)
 
-
-    # # CAR CONSTRICTED BICYCLE NETWORKS (takes too long - commented out for now)
-    # # These are the car networks where the length of the bike subnetwork is increased 10 times, effectively implementing a speed reduction from 50 km/h to 5 km/h. We are only interested in directness, as all other metrics do not change or are already calculated elsewhere.
-    # output_carconstrictedbike = {
-    #           "directness": [],
-    #           "directness_lcc": []
-    #          }
-    # for GT, GT_abstract, prune_quantile in zip(Gs, GT_abstracts, tqdm(prune_quantiles, desc = "Car constricted bicycle networks", leave = False)):
-    #     GT_carconstrictedbike = copy.deepcopy(G_big)
-    #     constrict_overlaps(GT_carconstrictedbike, GT)
-    #     if verbose: print("Calculating carconstrictedbike network metrics for quantile " + str(prune_quantile))
-    #     metrics = calculate_metrics(GT_carconstrictedbike, GT_abstract, G_big, nnids, output_carconstrictedbike, buffer_walk, numnodepairs, verbose, False)
-        
-    #     for key in output_carconstrictedbike.keys():
-    #         output_carconstrictedbike[key].append(metrics[key])
-
-
-    # # CAR MINUS BICYCLE NETWORKS
-    # # These are the car networks where the links from the bike subnetworks are completely removed. Here we follow a reverse order to build up the costly cover calculations additively.
-    # # First construct the negative networks
-    # GT_carminusbikes = []
-    # for GT, prune_quantile in zip(reversed(Gs), reversed(prune_quantiles)):
-    #     GT_carminusbike = copy.deepcopy(G_big)
-    #     delete_overlaps(GT_carminusbike, GT)
-    #     GT_carminusbikes.append(GT_carminusbike)
-    #     # print((GT_carminusbike.ecount() + GT.ecount()), GT_carminusbike.ecount(), GT.ecount()) # sanity check
-
-    # output_carminusbike = {
-    #         "length":[],
-    #         "length_lcc":[],
-    #         "coverage": [],
-    #         "directness": [],
-    #         "directness_lcc": [],
-    #         "poi_coverage": [],
-    #         "components": []
-    #         }
-    # covs_carminusbike = {}
-    # cov_prev = Polygon()
-    # GT_prev = ig.Graph()
-    # for GT, prune_quantile in zip(GT_carminusbikes, tqdm(reversed(prune_quantiles), desc = "Car minus bicycle networks", leave = False)):
-    #     if verbose: print("Calculating carminusbike network metrics for quantile " + str(prune_quantile))
-    #     metrics, cov = calculate_metrics(GT, GT, G_big, nnids, output_carminusbike, buffer_walk, numnodepairs, verbose, return_cov, GT_prev, cov_prev, True)
-        
-    #     for key in output_carminusbike.keys():
-    #         output_carminusbike[key].insert(0, metrics[key]) # append to beginning due to reversed order
-    #     covs_carminusbike[prune_quantile] = cov
-    #     cov_prev = copy.deepcopy(cov)
-    #     GT_prev = copy.deepcopy(GT)
-
-    # return (output, covs, output_carminusbike, covs_carminusbike, output_carconstrictedbike)
-    return (output, covs)
+    return output, covs
 
 
 def generate_video(placeid, imgname, vformat = "webm", duplicatelastframe = 5, verbose = True):
@@ -1312,7 +1388,7 @@ def generate_video(placeid, imgname, vformat = "webm", duplicatelastframe = 5, v
 
 
 
-def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested = {}):
+def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None):
     """Write results (pickle or dict to csv)
     """
     if mode == "pickle":
@@ -1320,10 +1396,20 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
     else:
         openmode = "w"
 
+    # Modify filename based on weighting flag
+    weighting_str = "_weighted" if weighting else ""
+    
+    # Construct the filename based on whether prune_measure is provided or not
     if poi_source:
-        filename = placeid + '_poi_' + poi_source + "_" + prune_measure + suffix
+        if prune_measure:
+            filename = placeid + '_poi_' + poi_source + "_" + prune_measure + weighting_str + suffix
+        else:
+            filename = placeid + '_poi_' + poi_source + weighting_str + suffix
     else:
-        filename = placeid + "_" + prune_measure + suffix
+        if prune_measure:
+            filename = placeid + "_" + prune_measure + weighting_str + suffix
+        else:
+            filename = placeid + weighting_str + suffix
 
     with open(PATH["results"] + placeid + "/" + filename, openmode) as f:
         if mode == "pickle":
@@ -1331,12 +1417,11 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
         elif mode == "dict":
             w = csv.writer(f)
             w.writerow(res.keys())
-            try: # dict with list values
+            try:  # dict with list values
                 w.writerows(zip(*res.values()))
-            except: # dict with single values
+            except:  # dict with single values
                 w.writerow(res.values())
         elif mode == "dictnested":
-            # https://stackoverflow.com/questions/29400631/python-writing-nested-dictionary-to-csv
             fields = ['network'] + list(dictnested.keys())
             w = csv.DictWriter(f, fields)
             w.writeheader()
@@ -1344,6 +1429,51 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
                 row = {'network': key}
                 row.update(val)
                 w.writerow(row)
+
+                
+
+def write_result_covers(res, mode, placeid, suffix, dictnested={}, weighting=None):
+    # makes results format place_existing_covers_weighted.csv etc. 
+    """Write results (pickle or dict to csv), with _weighted before the file extension if needed
+    """
+    if mode == "pickle":
+        openmode = "wb"
+        file_extension = ".pickle"
+    else:
+        openmode = "w"
+        file_extension = ".csv"
+
+    # Modify filename to append '_weighted' before the file extension if weighting is True
+    if weighting:
+        suffix = suffix.replace(file_extension, "") + "_weighted" + file_extension
+    else:
+        suffix += file_extension
+
+    # Construct the filename
+    filename = placeid + "_" + suffix
+
+    # Write the file
+    with open(PATH["results"] + placeid + "/" + filename, openmode) as f:
+        if mode == "pickle":
+            pickle.dump(res, f)
+        elif mode == "dict":
+            w = csv.writer(f)
+            w.writerow(res.keys())
+            try:  # dict with list values
+                w.writerows(zip(*res.values()))
+            except:  # dict with single values
+                w.writerow(res.values())
+        elif mode == "dictnested":
+            # Writing nested dictionary to CSV
+            fields = ['network'] + list(dictnested.keys())
+            w = csv.DictWriter(f, fields)
+            w.writeheader()
+            for key, val in sorted(res.items()):
+                row = {'network': key}
+                row.update(val)
+                w.writerow(row)
+
+
 
 
 def gdf_to_geojson(gdf, properties):
@@ -1375,5 +1505,548 @@ def ig_to_shapely(G):
     return G_shapely
 
 
+# Neighbourhoods
+
+def load_neighbourhoods(path):
+    """
+    Load all neighbourhoods geopackages with 'scored_neighbourhoods_' in the filename. 
+
+    Parameters:
+        path (str): The base path where the GeoPackage files are located.
+    Returns:
+        dict: A dictionary with cleaned filenames as keys and GeoDataFrames as values.
+    """
+    # Construct the path to the GeoPackage directory
+    gpkg_dir = os.path.join(path)
+    geopackages = {}
+    # Define the prefix to remove
+    prefix = "scored_neighbourhoods_"
+
+    # Check if the directory exists
+    if os.path.exists(gpkg_dir):
+        # Iterate over all files in the directory
+        for filename in os.listdir(gpkg_dir):
+            if filename.endswith('.gpkg') and "scored_neighbourhoods_" in filename:  # Check for GeoPackage files with the desired prefix
+                # Construct the full path to the GeoPackage file
+                gpkg_path = os.path.join(gpkg_dir, filename)
+                try:
+                    # Load the GeoPackage into a GeoDataFrame
+                    gdf = gpd.read_file(gpkg_path)
+                    
+                    # Remove the .gpkg extension from the filename
+                    city_name = os.path.splitext(filename)[0]
+                    
+                    # Remove the "scored_neighbourhoods_" prefix if it exists
+                    if city_name.startswith(prefix):
+                        city_name = city_name[len(prefix):]
+                    
+                    # Add the cleaned filename (city_name) and GeoDataFrame to the dictionary
+                    geopackages[city_name] = gdf
+                except Exception as e:
+                    print(f"Error loading GeoPackage {filename}: {e}")
+    else:
+        print(f"Directory does not exist: {gpkg_dir}")
+
+    print(f"{len(geopackages)} Cities loaded")
+    
+    return geopackages
 
 print("Loaded functions.\n")
+
+
+
+def nearest_edge_between_polygons(G, poly1, poly2):
+    """Find the shortest path between the edges of two polygons based on routing distance."""
+    min_dist = float('inf')
+    best_pair = None
+
+    # Get edges of both polygons as lists of coordinate pairs
+    poly1_edges = list(zip(poly1.exterior.coords[:-1], poly1.exterior.coords[1:]))
+    poly2_edges = list(zip(poly2.exterior.coords[:-1], poly2.exterior.coords[1:]))
+
+    # Iterate over all edges of both polygons
+    for edge1 in poly1_edges:
+        for edge2 in poly2_edges:
+            # Use existing graph's shortest path function between edge points
+            sp = G.get_shortest_paths(edge1[0], edge2[0], weights='weight', output='vpath')
+            dist = sum([G.es[e]["weight"] for e in sp[0]]) # Add the weights of the shortest path
+
+            if dist < min_dist:
+                min_dist = dist
+                best_pair = (edge1[0], edge2[0])
+
+    return best_pair, min_dist
+
+
+
+
+
+def greedy_triangulation_polygon_routing(G, pois, weighting=None, prune_quantiles = [1], prune_measure = "betweenness"):
+    """Greedy Triangulation (GT) of a graph G's node subset pois,
+    then routing to connect the GT (up to a quantile of betweenness
+    betweenness_quantile).
+    G is an ipgraph graph, pois is a list of node ids.
+    
+    The GT connects pairs of nodes in ascending order of their distance provided
+    that no edge crossing is introduced. It leads to a maximal connected planar
+    graph, while minimizing the total length of edges considered. 
+    See: cardillo2006spp
+    
+    Distance here is routing distance, while edge crossing is checked on an abstract 
+    level.
+    """
+    
+    if len(pois) < 2: return ([], []) # We can't do anything with less than 2 POIs
+
+    # GT_abstract is the GT with same nodes but euclidian links to keep track of edge crossings
+    pois_indices = set()
+    for poi in pois:
+        pois_indices.add(G.vs.find(id = poi).index)
+    G_temp = copy.deepcopy(G)
+    for e in G_temp.es: # delete all edges
+        G_temp.es.delete(e)
+        
+    poipairs = poipairs_by_distance(G, pois, weighting, True)
+    if len(poipairs) == 0: return ([], [])
+
+    if prune_measure == "random":
+        # run the whole GT first
+        GT = copy.deepcopy(G_temp.subgraph(pois_indices))
+        for poipair, poipair_distance in poipairs:
+            poipair_ind = (GT.vs.find(id = poipair[0]).index, GT.vs.find(id = poipair[1]).index)
+            if not new_edge_intersects(GT, (GT.vs[poipair_ind[0]]["x"], GT.vs[poipair_ind[0]]["y"], GT.vs[poipair_ind[1]]["x"], GT.vs[poipair_ind[1]]["y"])):
+                GT.add_edge(poipair_ind[0], poipair_ind[1], weight = poipair_distance)
+        # create a random order for the edges
+        random.seed(0) # const seed for reproducibility
+        edgeorder = random.sample(range(GT.ecount()), k = GT.ecount())
+    else: 
+        edgeorder = False
+    
+    GT_abstracts = []
+    GTs = []
+    for prune_quantile in tqdm(prune_quantiles, desc = "Greedy triangulation", leave = False):
+        GT_abstract = copy.deepcopy(G_temp.subgraph(pois_indices))
+        GT_abstract = greedy_triangulation(GT_abstract, poipairs, prune_quantile, prune_measure, edgeorder)
+        GT_abstracts.append(GT_abstract)
+        
+        # Get node pairs we need to route, sorted by distance
+        routenodepairs = {}
+        for e in GT_abstract.es:
+            routenodepairs[(e.source_vertex["id"], e.target_vertex["id"])] = e["weight"]
+        routenodepairs = sorted(routenodepairs.items(), key = lambda x: x[1])
+
+        # Do the routing
+        GT_indices = set()
+        for poipair, poipair_distance in routenodepairs:
+            poipair_ind = (G.vs.find(id = poipair[0]).index, G.vs.find(id = poipair[1]).index)
+            # debug
+            #print(f"Edge weights before routing: {G.es['weight'][:10]}")  # Prints first 10 weights
+            #print(f"Routing between: {poipair[0]} and {poipair[1]} with distance: {poipair_distance}")
+            sp = set(G.get_shortest_paths(poipair_ind[0], poipair_ind[1], weights = "weight", output = "vpath")[0])
+            #print(f"Shortest path between {poipair[0]} and {poipair[1]}: {sp}")
+
+            GT_indices = GT_indices.union(sp)
+
+        GT = G.induced_subgraph(GT_indices)
+        GTs.append(GT)
+    
+    return (GTs, GT_abstracts)
+    
+
+def get_neighbourhood_centroids(gdf):
+    """
+    Find the centroid of each neighbourhood
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing the city's polygons (neighbourhoods).
+
+    Returns:
+        GeoDataFrame: A GeoDataFrame containing the centroids moved to the nearest edge.
+    """
+    centroids = gdf.geometry.centroid  # Calculate centroids for each polygon
+    centroids_gdf = gpd.GeoDataFrame({'neighbourhood_id': gdf['neighbourhood_id'], 'geometry': centroids}, crs=gdf.crs) 
+    
+    return centroids_gdf 
+
+
+
+    
+def get_neighbourhood_streets(gdf, debug):
+    """"
+    Get all the streets within each neighbourhood.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing neighbourhoods.
+    Returns:            
+        gdf of nodes and edges within neighbourhoods
+    """ 
+    # Add a unique ID column to the GeoDataFrame
+    gdf['ID'] = range(1, len(gdf) + 1)  # Adding ID column starting from 1
+
+    # create bounding box slightly larger than neighbourhoods
+    gdf_mercator = gdf.to_crs(epsg=3857)
+    gdf_mercator = gdf_mercator.buffer(1000)
+    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
+    minx, miny, maxx, maxy = gdf_buffered.total_bounds
+    
+    # get driving network (we're only interested in streets cars could be on)
+    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
+    nodes, edges = ox.graph_to_gdfs(network)
+    edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
+
+    if debug == True:
+        unique_ids = edges['ID'].dropna().unique()
+        np.random.seed(42) 
+        random_colors = {ID: mcolors.to_hex(np.random.rand(3)) for ID in unique_ids}
+        edges['color'] = edges['ID'].map(random_colors)
+        edges['color'] = edges['color'].fillna('#808080')  # Gray for NaN values
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        edges.plot(ax=ax, color=edges['color'], legend=False) 
+        ax.set_title('Edges colored randomly by Neighbourhood ID')
+        plt.show()
+
+
+    return nodes, edges
+
+def get_neighbourhood_streets_split(gdf, debug):
+    """"
+    Get all the streets within each neighbourhood.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing neighbourhoods.
+    Returns:            
+        gdf of nodes and edges within neighbourhoods
+    """ 
+    # add ID for export
+    gdf['ID'] = range(1, len(gdf) + 1)  # Adding ID column starting from 1
+
+    # create bounding box slightly larger than neighbourhoods
+    gdf_mercator = gdf.to_crs(epsg=3857)
+    gdf_mercator = gdf_mercator.buffer(1000)
+    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
+    minx, miny, maxx, maxy = gdf_buffered.total_bounds
+    
+    # get street network (we want to consider all exit/entry points)
+    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='all')
+    nodes, edges = ox.graph_to_gdfs(network)
+    def get_boundary_graph(network):
+        """
+        Create a graph from bounding roads.
+
+        Args:
+            network (networkx.Graph): The original graph.
+
+        Returns:
+            networkx.Graph: The boundary graph.
+        """
+        boundary_g = network.copy()
+        # Define the conditions for keeping edges
+        conditions = [
+        (
+            data.get('highway') in ['trunk', 'trunk_link', 'motorway', 'motorway_link', 'primary', 'primary_link',
+                                    'secondary', 'secondary_link', 'tertiary', 'tertiary_link'] 
+        ) or (
+            data.get('maxspeed') in ['60 mph', '70 mph', '40 mph', 
+                                    ('30 mph', '60 mph'), ('30 mph', '50 mph'), 
+                                    ('70 mph', '50 mph'), ('40 mph', '60 mph'), 
+                                    ('70 mph', '60 mph'), ('60 mph', '40 mph'),
+                                    ('50 mph', '40 mph'), ('30 mph', '40 mph'),
+                                    ('20 mph', '60 mph'), ('70 mph', '40 mph'), 
+                                    ('30 mph', '70 mph')]
+            ) 
+            for u, v, k, data in boundary_g.edges(keys=True, data=True)
+        ]
+        # Keep only the edges that satisfy the conditions
+        edges_to_remove = [
+            (u, v, k) for (u, v, k), condition in zip(boundary_g.edges(keys=True), conditions) if not condition
+        ]
+        boundary_g.remove_edges_from(edges_to_remove)
+        # Clean nodes by removing isolated nodes from the graph
+        isolated_nodes = list(nx.isolates(boundary_g))
+        boundary_g.remove_nodes_from(isolated_nodes)
+        return boundary_g
+    boundary_g = get_boundary_graph(network)
+    filtered_g = network.copy()
+    filtered_g.remove_edges_from(boundary_g.edges())
+    filtered_g.remove_nodes_from(boundary_g.nodes())
+    # Clip the graph to the boundary (but make the boundary slightly larger)
+    filtered_g_edges = ox.graph_to_gdfs(filtered_g, nodes=False)
+    filtered_g_nodes = ox.graph_to_gdfs(filtered_g, edges=False)
+    filtered_g_edges = filtered_g_edges.clip(gdf)
+    filtered_g_nodes = filtered_g_nodes.clip(gdf)
+
+    # Add new nodes at the end of any edge which has been truncated
+    # this is needed to ensure that the graph is correctly disconnected
+    # at boundary roads
+    def add_end_nodes(filtered_g_nodes, filtered_g_edges):
+        # Create a GeoSeries of existing node geometries for spatial operations
+        existing_node_geometries = gpd.GeoSeries(filtered_g_nodes.geometry.tolist())
+        new_nodes = []
+        new_edges = []
+        # Iterate through each edge to check its endpoints
+        for idx, edge in filtered_g_edges.iterrows():
+            geometries = [edge.geometry] if isinstance(edge.geometry, LineString) else edge.geometry.geoms
+            # Loop through each geometry in the edge
+            for geom in geometries:
+                u = geom.coords[0]  # Start point (first coordinate)
+                v = geom.coords[-1]  # End point (last coordinate)
+                # Check if the start point exists
+                if not existing_node_geometries.contains(Point(u)).any():
+                    # Create a new node at the start point
+                    new_node = gpd.GeoDataFrame(geometry=[Point(u)], crs=filtered_g_nodes.crs)
+                    new_node['id'] = f'new_{len(filtered_g_nodes) + len(new_nodes)}'  # Generate a unique id
+                    new_node['x'] = u[0]
+                    new_node['y'] = u[1]
+                    new_nodes.append(new_node)
+                # Check if the end point exists
+                if not existing_node_geometries.contains(Point(v)).any():
+                    # Create a new node at the end point
+                    new_node = gpd.GeoDataFrame(geometry=[Point(v)], crs=filtered_g_nodes.crs)
+                    new_node['id'] = f'new_{len(filtered_g_nodes) + len(new_nodes)}'  # Generate a unique id
+                    new_node['x'] = v[0]
+                    new_node['y'] = v[1]
+                    new_nodes.append(new_node)
+                # Add new edges to new_edges list if endpoints are new nodes
+                new_edges.append((u, v, geom))  # Keep the geometry of the edge
+        # Combine new nodes into a GeoDataFrame
+        if new_nodes:
+            new_nodes_gdf = pd.concat(new_nodes, ignore_index=True)
+            filtered_g_nodes = gpd.GeoDataFrame(pd.concat([filtered_g_nodes, new_nodes_gdf], ignore_index=True))
+        return filtered_g_nodes, filtered_g_edges
+    filtered_g_nodes, filtered_g_edges = add_end_nodes(filtered_g_nodes, filtered_g_edges)
+    # Rebuild graph with new end nodes
+    filtered_g.clear()
+    filtered_g = nx.MultiDiGraph()
+
+    # add nodes and edges back in
+    unique_nodes = set()
+    for _, row in filtered_g_edges.iterrows():
+        if row.geometry.type == 'LineString':
+            coords = list(row.geometry.coords)
+        elif row.geometry.type == 'MultiLineString':
+            coords = [coord for line in row.geometry.geoms for coord in line.coords]
+        unique_nodes.update(coords)
+    # Add nodes with attributes
+    for node in unique_nodes:
+        if isinstance(node, tuple):
+            x, y = node
+            filtered_g.add_node(node, x=x, y=y, geometry=Point(x, y))
+    # Add nodes from filtered_g_nodes
+    for idx, row in filtered_g_nodes.iterrows():
+        node_id = idx
+        if node_id not in filtered_g.nodes:
+            filtered_g.add_node(node_id, osmid=node_id, x=row.geometry.x, y=row.geometry.y, geometry=row.geometry)
+    # Add edges
+    for _, row in filtered_g_edges.iterrows():
+        if row.geometry.type == 'LineString':
+            coords = list(row.geometry.coords)
+            for i in range(len(coords) - 1):
+                filtered_g.add_edge(coords[i], coords[i + 1], geometry=row.geometry, osmid=row['osmid'])
+        elif row.geometry.type == 'MultiLineString':
+            for line in row.geometry.geoms:
+                coords = list(line.coords)
+                for i in range(len(coords) - 1):
+                    filtered_g.add_edge(coords[i], coords[i + 1], geometry=line, osmid=row['osmid'])
+    # Assign osmids to nodes with coordinate IDs
+    # this ensure omsnx compatibility
+    for node, data in filtered_g.nodes(data=True):
+        if isinstance(node, tuple):
+            # Find an edge that contains this node (dirty method of getting osmid)
+            for u, v, key, edge_data in filtered_g.edges(keys=True, data=True):
+                if node in [u, v]:
+                    data['osmid'] = edge_data['osmid']
+                    break
+    filtered_g.graph['crs'] = 'EPSG:4326' # give the graph a crs
+    nodes, edges = ox.graph_to_gdfs(filtered_g)
+    # Set 'osmid' as the index, replacing the old index
+    nodes = nodes.set_index('osmid', drop=True)
+    
+    edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
+
+    if debug == True:
+        # plot out the network into its "neighbourhoods"
+        network = filtered_g
+        undirected_network = network.to_undirected()
+        connected_components = list(nx.connected_components(undirected_network))
+        colors = [f'#{random.randint(0, 0xFFFFFF):06x}' for _ in range(len(connected_components))]
+        edge_color_map = {}
+        for color, component in zip(colors, connected_components):
+            component_edges = []
+            for node in component:
+                for neighbor in undirected_network.neighbors(node):
+                    edge = (node, neighbor)
+                    reverse_edge = (neighbor, node)
+                    if edge in network.edges or reverse_edge in network.edges:
+                        component_edges.append(edge)
+
+            # Assign the same color to all edges in the component
+            for edge in set(component_edges): 
+                edge_color_map[edge] = color
+        edge_colors = []
+        for edge in network.edges:
+            # Ensure we look for both directions in the edge color map
+            edge_colors.append(edge_color_map.get(edge, edge_color_map.get((edge[1], edge[0]), 'black')))  # Default to black if not found
+
+        # Draw the network without nodes, increase figsize for larger plot
+        fig, ax = plt.subplots(figsize=(20, 15))  # Set the desired figure size
+        ox.plot_graph(network, ax=ax, node_color='none', edge_color=edge_colors,
+                    edge_linewidth=2, show=False)
+        plt.show()
+
+    return nodes, edges
+
+
+
+
+def get_exit_nodes(neighbourhoods, G_carall, neighbourhood_buffer_distance=10, street_buffer_distance=100):
+    """
+    Get nodes within a buffer of neighbourhood boundaries and street edges.
+
+    Parameters:
+    - neighbourhoods: dict, dictionary of neighbourhood GeoDataFrames
+    - G_carall: OSMnx graph, the graph of the area
+    - neighbourhood_buffer_distance: float, buffer distance in meters for neighbourhoods
+    - street_buffer_distance: float, buffer distance in meters for streets
+
+    Returns:
+    - nodes_within_buffer: GeoDataFrame containing nodes within the specified buffer
+    """
+    
+    # Load graph and set CRS if not present
+    if 'crs' not in G_carall.graph:
+        G_carall.graph['crs'] = 'epsg:4326'
+
+    # Load neighbourhoods and convert graph to GeoDataFrames
+    edges = ox.graph_to_gdfs(G_carall, nodes=False, edges=True)
+    nodes = ox.graph_to_gdfs(G_carall, nodes=True, edges=False)
+
+    # Add unique IDs to each polygon in neighbourhoods and buffer them
+    boundary_buffers = {}
+    for place_name, gdf in neighbourhoods.items():
+        exploded_gdf = gdf.explode().reset_index(drop=True)
+        exploded_gdf['neighbourhood_id'] = exploded_gdf.index  # Unique ID for each polygon
+        buffer = exploded_gdf.boundary.to_crs(epsg=3857).buffer(neighbourhood_buffer_distance).to_crs(exploded_gdf.crs)  # Buffering
+        boundary_buffers[place_name] = (buffer, exploded_gdf)
+
+    # Combine all buffers into a single GeoDataFrame and set the geometry
+    buffer_geometries = [boundary_buffers[place][0] for place in boundary_buffers]
+    neighbourhood_geometries = [boundary_buffers[place][1]['neighbourhood_id'] for place in boundary_buffers]
+
+    # Create a GeoDataFrame from the geometries
+    boundary_buffers_gdf = gpd.GeoDataFrame(geometry=pd.concat(buffer_geometries, ignore_index=True))
+    boundary_buffers_gdf['neighbourhood_id'] = pd.concat(neighbourhood_geometries, ignore_index=True)
+
+    # Ensure CRS is set correctly
+    nodes_within_buffer = gpd.sjoin(nodes, boundary_buffers_gdf, how='inner', op='intersects')
+
+    street_buffers = {}
+    for place_name, gdf in neighbourhoods.items():
+        street_nodes, street_edges = get_neighbourhood_streets_split(gdf, debug=False)
+        # Buffering edges with correct CRS
+        street_buffer = street_edges.to_crs(epsg=3857).geometry.buffer(street_buffer_distance).to_crs(street_edges.crs)
+        street_buffers[place_name] = gpd.GeoDataFrame(geometry=street_buffer, crs=street_edges.crs)
+
+    streets_buffer_gdf = gpd.GeoDataFrame(
+        pd.concat([gdf for gdf in street_buffers.values()]), 
+        crs=next(iter(street_buffers.values())).crs
+    )
+
+    # Drop the 'index_right' column to avoid conflict
+    if 'index_right' in nodes_within_buffer.columns:
+        nodes_within_buffer = nodes_within_buffer.drop(columns=['index_right'])
+
+    nodes_within_buffer = gpd.sjoin(nodes_within_buffer, streets_buffer_gdf, how='inner', op='intersects')
+    # Clean up columns 
+    if 'index_right0' in nodes_within_buffer.columns:
+        nodes_within_buffer = nodes_within_buffer.drop(columns=['index_right0', 'index_right1', 'index_right2'], errors='ignore')
+
+    return nodes_within_buffer
+
+
+def greedy_triangulation_routing_GT_abstracts(G, pois, weighting=None, prune_quantiles=[1], prune_measure="betweenness"):
+    """Generates Greedy Triangulation (GT_abstracts) of a graph G's node subset pois.
+    This version focuses only on GT_abstracts without generating GTs.
+    """
+
+    if len(pois) < 2:
+        return []  # We can't do anything with less than 2 POIs
+
+    # Initialize the POI indices and an empty copy of G
+    pois_indices = {G.vs.find(id=poi).index for poi in pois}
+    G_temp = copy.deepcopy(G)
+    for e in G_temp.es:
+        G_temp.es.delete(e)  # Delete all edges in G_temp
+
+    poipairs = poipairs_by_distance(G, pois, weighting, True)
+    if not poipairs:
+        return []
+
+    # If prune_measure is "random", define edge order
+    edgeorder = False
+    if prune_measure == "random":
+        GT = copy.deepcopy(G_temp.subgraph(pois_indices))
+        for poipair, poipair_distance in poipairs:
+            poipair_ind = (
+                GT.vs.find(id=poipair[0]).index, 
+                GT.vs.find(id=poipair[1]).index
+            )
+            if not new_edge_intersects(
+                GT, (
+                    GT.vs[poipair_ind[0]]["x"], 
+                    GT.vs[poipair_ind[0]]["y"], 
+                    GT.vs[poipair_ind[1]]["x"], 
+                    GT.vs[poipair_ind[1]]["y"]
+                )
+            ):
+                GT.add_edge(poipair_ind[0], poipair_ind[1], weight=poipair_distance)
+        
+        # Define a random edge order
+        random.seed(0)  # Constant seed for reproducibility
+        edgeorder = random.sample(range(GT.ecount()), k=GT.ecount())
+    
+    # Generate GT_abstracts for each prune_quantile
+    GT_abstracts = []
+    for prune_quantile in tqdm(prune_quantiles, desc="Greedy triangulation", leave=False):
+        GT_abstract = copy.deepcopy(G_temp.subgraph(pois_indices))
+        GT_abstract = greedy_triangulation(GT_abstract, poipairs, prune_quantile, prune_measure, edgeorder)
+        GT_abstracts.append(GT_abstract)
+    
+    return GT_abstracts
+
+
+def get_neighbourhood_streets(gdf, debug):
+    """"
+    Get all the streets within each neighbourhood.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing neighbourhoods.
+    Returns:            
+        gdf of nodes and edges within neighbourhoods
+    """ 
+    # Add a unique ID column to the GeoDataFrame
+    gdf['ID'] = range(0, len(gdf) + 1)  # Adding ID column starting from 1
+
+    # create bounding box slightly larger than neighbourhoods
+    gdf_mercator = gdf.to_crs(epsg=3857)
+    gdf_mercator = gdf_mercator.buffer(1000)
+    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
+    minx, miny, maxx, maxy = gdf_buffered.total_bounds
+    
+    # get driving network (we're only interested in streets cars could be on)
+    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
+    nodes, edges = ox.graph_to_gdfs(network)
+    edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
+
+    if debug == True:
+        unique_ids = edges['ID'].dropna().unique()
+        np.random.seed(42) 
+        random_colors = {ID: mcolors.to_hex(np.random.rand(3)) for ID in unique_ids}
+        edges['color'] = edges['ID'].map(random_colors)
+        edges['color'] = edges['color'].fillna('#808080')  # Gray for NaN values
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        edges.plot(ax=ax, color=edges['color'], legend=False) 
+        ax.set_title('Edges colored randomly by Neighbourhood ID')
+        plt.show()
+
+
+    return nodes, edges

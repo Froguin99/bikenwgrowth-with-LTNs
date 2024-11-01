@@ -43,6 +43,7 @@ from haversine import haversine, haversine_vector
 import pyproj
 from shapely.geometry import Point, MultiPoint, LineString, Polygon, MultiLineString, MultiPolygon
 import shapely.ops as ops
+from shapely.ops import unary_union
 import geopandas as gpd
 import geojson
 import json
