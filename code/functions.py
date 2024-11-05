@@ -1668,10 +1668,25 @@ def get_neighbourhood_centroids(gdf):
     
     return centroids_gdf 
 
+def prepare_neighbourhoods(cities):
+    """
+    Convert columns from strings to numbers. Quirk of exporting geopackages with numbers...
 
+    Parameters:
+        cities (dict): A dictionary with filenames as keys and GeoDataFrames as values.
+    """
+    for city_name, gdf in cities.items():
+        for column in gdf.columns:
+            if column != 'geometry':
+                try:
+                    gdf[column] = pd.to_numeric(gdf[column], errors='coerce')
+                except Exception as e:
+                    print(f"Error converting column '{column}' in '{city_name}': {e}")
+
+    return cities
 
     
-def get_neighbourhood_streets(gdf, debug):
+def get_neighbourhood_streets(gdf, debug=False):
     """"
     Get all the streets within each neighbourhood.
 
@@ -1681,6 +1696,8 @@ def get_neighbourhood_streets(gdf, debug):
         gdf of nodes and edges within neighbourhoods
     """ 
     # Add a unique ID column to the GeoDataFrame
+    print(f"GeoDataFrame shape before adding ID: {gdf.shape}")
+
     gdf['ID'] = range(1, len(gdf) + 1)  # Adding ID column starting from 1
 
     # create bounding box slightly larger than neighbourhoods
@@ -2013,40 +2030,3 @@ def greedy_triangulation_routing_GT_abstracts(G, pois, weighting=None, prune_qua
     
     return GT_abstracts
 
-
-def get_neighbourhood_streets(gdf, debug):
-    """"
-    Get all the streets within each neighbourhood.
-
-    Parameters:
-        gdf (GeoDataFrame): A GeoDataFrame containing neighbourhoods.
-    Returns:            
-        gdf of nodes and edges within neighbourhoods
-    """ 
-    # Add a unique ID column to the GeoDataFrame
-    gdf['ID'] = range(0, len(gdf) + 1)  # Adding ID column starting from 1
-
-    # create bounding box slightly larger than neighbourhoods
-    gdf_mercator = gdf.to_crs(epsg=3857)
-    gdf_mercator = gdf_mercator.buffer(1000)
-    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
-    minx, miny, maxx, maxy = gdf_buffered.total_bounds
-    
-    # get driving network (we're only interested in streets cars could be on)
-    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
-    nodes, edges = ox.graph_to_gdfs(network)
-    edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
-
-    if debug == True:
-        unique_ids = edges['ID'].dropna().unique()
-        np.random.seed(42) 
-        random_colors = {ID: mcolors.to_hex(np.random.rand(3)) for ID in unique_ids}
-        edges['color'] = edges['ID'].map(random_colors)
-        edges['color'] = edges['color'].fillna('#808080')  # Gray for NaN values
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        edges.plot(ax=ax, color=edges['color'], legend=False) 
-        ax.set_title('Edges colored randomly by Neighbourhood ID')
-        plt.show()
-
-
-    return nodes, edges
