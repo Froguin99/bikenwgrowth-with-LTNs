@@ -95,5 +95,6 @@ osmnxparameters = {'car30': {'network_type':'drive', 'custom_filter':'["maxspeed
 
 # 02
 snapthreshold = 300 # in m, tolerance for snapping POIs to network
+# 300 m works well for zoom resolution 8 on tesselation (points never leave their hexagons)
 
 print("Loaded parameters.\n")
