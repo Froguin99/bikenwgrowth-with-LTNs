@@ -94,6 +94,6 @@ osmnxparameters = {'car30': {'network_type':'drive', 'custom_filter':'["maxspeed
 
 
 # 02
-snapthreshold = 500 # in m, tolerance for snapping POIs to network
+snapthreshold = 300 # in m, tolerance for snapping POIs to network
 
 print("Loaded parameters.\n")

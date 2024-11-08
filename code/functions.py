@@ -2030,3 +2030,182 @@ def greedy_triangulation_routing_GT_abstracts(G, pois, weighting=None, prune_qua
     
     return GT_abstracts
 
+
+
+def get_urban_areas(place):
+    def set_location_boundary(place):
+        """
+        Sets up the location boundary by geocoding the given place and buffering it.
+
+        Parameters:
+        place (str): The name or address of the place to geocode.
+
+        Returns:
+        geopandas.GeoDataFrame: The buffered boundary of the location.
+        """
+        # Set location and get boundary
+        boundary = ox.geocode_to_gdf(place)
+        boundary = boundary.to_crs('3857') # we convert to EPSG 3857 to buffer in meters
+        boundary_buffered = boundary.buffer(100) # Buffer boundary to prevent strange edge cases...
+
+        return boundary_buffered, boundary
+
+    ## get urban footprints from GUF
+
+    def get_guf(place):
+        """
+        Retrieves a clipped GeoDataFrame of GUF urban areas within a specified place boundary.
+
+        Parameters:
+        - place (str): The name or address of the place to retrieve urban areas for.
+
+        Returns:
+        - gdf_clipped (GeoDataFrame): A GeoDataFrame containing the clipped urban areas within the specified place boundary.
+        """
+
+        # Step 1: Access the WMS Service
+        wms_url = 'https://geoservice.dlr.de/eoc/land/wms?GUF04_DLR_v1_Mosaic'
+        wms = WebMapService(wms_url, version='1.1.1')
+
+        # Step 2: Identify the Layer with ID 102. This is the Global Urban Footprint layer GUF
+        for layer_name, layer in wms.contents.items():
+            if '102' in layer_name:
+                print(f"Layer ID 102 found: {layer_name}")
+
+        # Assuming 'GUF04_DLR_v1_Mosaic' is the layer with ID 102
+        layer = 'GUF04_DLR_v1_Mosaic'  # Replace with the actual layer name if different
+
+        # Step 3: Get the polygon boundary using osmnx
+
+        boundary_gdf = ox.geocode_to_gdf(place)
+
+        boundary = boundary_gdf.to_crs('EPSG:3857')
+        # buffer boundary to ensure clips include riverlines which may act as borders between geographies
+        boundary_buffered = boundary.buffer(100)
+        boundary_buffered = boundary_buffered.to_crs('EPSG:4326')
+        boundary_polygon = boundary_gdf.geometry[0]
+        wms_boundary = boundary_buffered.geometry[0]
+
+        # Convert the polygon to a bounding box
+        minx, miny, maxx, maxy = wms_boundary.bounds
+
+        # Step 4: Request the data from WMS using the bounding box
+        width = 1024
+        height = 1024
+        response = wms.getmap(
+            layers=[layer],
+            srs='EPSG:4326',
+            bbox=(minx, miny, maxx, maxy),
+            size=(width, height),
+            format='image/geotiff'
+        )
+
+        # Step 5: Load the Raster Data into Rasterio
+        with MemoryFile(response.read()) as memfile:
+            with memfile.open() as src:
+                image = src.read(1)  # Read the first band
+                transform = src.transform
+                crs = src.crs
+
+                # Clip the raster data to the polygon
+                out_image, out_transform = rio_mask(src, [mapping(wms_boundary)], crop=True)  # Use renamed mask function
+                out_meta = src.meta.copy()
+                out_meta.update({"driver": "GTiff",
+                                "height": out_image.shape[1],
+                                "width": out_image.shape[2],
+                                "transform": out_transform,
+                                "crs": crs})
+
+        # Step 6: Convert Raster to Vector
+        mask_arr = (out_image[0] != 0).astype(np.uint8)  # Assuming non-zero values are urban areas
+
+        shapes_gen = shapes(mask_arr, mask=mask_arr, transform=out_transform)
+
+        polygons = []
+        for geom, value in shapes_gen:
+            polygons.append(shape(geom))
+
+        # Create a GeoDataFrame from the polygons
+        gdf = gpd.GeoDataFrame({'geometry': polygons}, crs=crs)
+
+        # Step 7: Create Buffers Around Urban Areas
+        buffer_distance = 100  # Buffer distance in meters (adjust as needed)
+        gdf_buffered = gdf.copy()
+        gdf_buffered['geometry'] = gdf['geometry'].buffer(buffer_distance)
+
+        # Step 8: Clip the GeoDataFrame to the boundary of the place
+        gdf_clipped = gpd.clip(gdf, boundary_gdf)
+
+        return gdf_clipped
+
+    ## get residential areas
+    def get_residential_areas(polygon):
+        polygon = polygon.to_crs('EPSG:4326')
+        # Retrieve features from OpenStreetMap
+        features = ox.features_from_polygon(polygon.iloc[0], tags={'landuse': 'residential'})
+        
+        # Convert features to a GeoDataFrame
+        gdf = gpd.GeoDataFrame.from_features(features)
+        gdf = gdf.set_crs('EPSG:4326')
+        
+        return gdf
+
+
+
+    ## join urban foot prints and residential areas
+    # this is to create a single polygon of where neighbourhoods can be found within
+
+    def join_geodataframes(gdf1, gdf2):
+        # Ensure both GeoDataFrames have the exact same CRS
+        target_crs = 'EPSG:4326'  # WGS 84
+        gdf1 = gdf1.to_crs(target_crs)
+        gdf2 = gdf2.to_crs(target_crs)
+        
+        # Concatenate GeoDataFrames
+        joined_gdf = pd.concat([gdf1, gdf2], ignore_index=True)
+        
+        return gpd.GeoDataFrame(joined_gdf, crs=target_crs)
+
+
+
+
+
+    ## create a small buffer to ensure all areas a captured correctly
+
+    def buffer_geometries_in_meters(gdf, distance):
+        # Define the World Mercator projected CRS
+        projected_crs = 'EPSG:3857'  # World Mercator
+
+        # Project to the new CRS
+        gdf_projected = gdf.to_crs(projected_crs)
+        
+        # Buffer the geometries
+        gdf_projected['geometry'] = gdf_projected['geometry'].buffer(distance)
+        
+        # Reproject back to the original CRS
+        gdf_buffered = gdf_projected.to_crs(gdf.crs)
+        
+        return gdf_buffered
+
+
+
+    ## union into one gdf
+
+    def unary_union_polygons(gdf):
+        # Combine all geometries into a single geometry
+        unified_geometry = unary_union(gdf['geometry'])
+        
+        # Create a new GeoDataFrame with a single row containing the unified geometry
+        combined_gdf = gpd.GeoDataFrame({'geometry': [unified_geometry]}, crs=gdf.crs)
+        
+        return combined_gdf
+    
+    boundary_buffered, boundary = set_location_boundary(place)
+    guf = get_guf(place)
+    residential_areas = get_residential_areas(boundary_buffered)
+
+    guf_residential_gdf = join_geodataframes(guf, residential_areas)
+    guf_residential_gdf = buffer_geometries_in_meters(guf_residential_gdf, 100)  # Buffer by 100 meters
+    guf_residential_gdf = unary_union_polygons(guf_residential_gdf)
+
+    return(guf_residential_gdf)
