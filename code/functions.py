@@ -1722,8 +1722,50 @@ def get_neighbourhood_streets(gdf, debug=False):
         ax.set_title('Edges colored randomly by Neighbourhood ID')
         plt.show()
 
-
     return nodes, edges
+
+
+def get_neighbourhood_street_graph(gdf, debug=False):
+    """"
+    Get all the streets within each neighbourhood.
+
+    Parameters:
+        gdf (GeoDataFrame): A GeoDataFrame containing neighbourhoods.
+    Returns:            
+        gdf of nodes and edges within neighbourhoods
+    """ 
+    # Add a unique ID column to the GeoDataFrame
+    print(f"GeoDataFrame shape before adding ID: {gdf.shape}")
+
+    gdf['ID'] = range(1, len(gdf) + 1)  # Adding ID column starting from 1
+
+    # create bounding box slightly larger than neighbourhoods
+    gdf_mercator = gdf.to_crs(epsg=3857)
+    gdf_mercator = gdf_mercator.buffer(1000)
+    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
+    minx, miny, maxx, maxy = gdf_buffered.total_bounds
+    
+    # get driving network (we're only interested in streets cars could be on)
+    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
+    nodes, edges = ox.graph_to_gdfs(network)
+    edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
+
+    if debug == True:
+        unique_ids = edges['ID'].dropna().unique()
+        np.random.seed(42) 
+        random_colors = {ID: mcolors.to_hex(np.random.rand(3)) for ID in unique_ids}
+        edges['color'] = edges['ID'].map(random_colors)
+        edges['color'] = edges['color'].fillna('#808080')  # Gray for NaN values
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        edges.plot(ax=ax, color=edges['color'], legend=False) 
+        ax.set_title('Edges colored randomly by Neighbourhood ID')
+        plt.show()
+
+
+    edges = edges.dropna(subset=['ID'])
+    G = ox.graph_from_gdfs(nodes, edges)
+    
+    return nodes, edges, G
 
 def get_neighbourhood_streets_split(gdf, debug):
     """"
@@ -1874,10 +1916,11 @@ def get_neighbourhood_streets_split(gdf, debug):
                     data['osmid'] = edge_data['osmid']
                     break
     filtered_g.graph['crs'] = 'EPSG:4326' # give the graph a crs
+    neighbourhood_graphs = filtered_g
     nodes, edges = ox.graph_to_gdfs(filtered_g)
     # Set 'osmid' as the index, replacing the old index
     nodes = nodes.set_index('osmid', drop=True)
-    
+
     edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
 
     if debug == True:
@@ -1910,7 +1953,7 @@ def get_neighbourhood_streets_split(gdf, debug):
                     edge_linewidth=2, show=False)
         plt.show()
 
-    return nodes, edges
+    return nodes, edges, neighbourhood_graphs
 
 
 
@@ -1958,7 +2001,7 @@ def get_exit_nodes(neighbourhoods, G_carall, neighbourhood_buffer_distance=10, s
 
     street_buffers = {}
     for place_name, gdf in neighbourhoods.items():
-        street_nodes, street_edges = get_neighbourhood_streets_split(gdf, debug=False)
+        street_nodes, street_edges, neighbourhood_graph = get_neighbourhood_streets_split(gdf, debug=False)
         # Buffering edges with correct CRS
         street_buffer = street_edges.to_crs(epsg=3857).geometry.buffer(street_buffer_distance).to_crs(street_edges.crs)
         street_buffers[place_name] = gpd.GeoDataFrame(geometry=street_buffer, crs=street_edges.crs)
@@ -2209,3 +2252,53 @@ def get_urban_areas(place):
     guf_residential_gdf = unary_union_polygons(guf_residential_gdf)
 
     return(guf_residential_gdf)
+
+
+
+def process_maxspeeds(graph):
+    """
+    Process the 'maxspeed' attributes in the edges of the given graph.
+    If 'maxspeed' is a list, only keep the first item. Otherwise, leave it as is.
+
+    Parameters:
+        graph (networkx.Graph): The input graph with edges containing 'maxspeed' attributes.
+
+    Returns:
+        networkx.Graph: The graph with processed 'maxspeed' attributes.
+    """
+    # Function to extract the first speed if maxspeed is a list
+    def get_first_speed(maxspeed):
+        if isinstance(maxspeed, list):  # Check if maxspeed is a list
+            return maxspeed[0]  # Return the first item
+        return maxspeed  # Otherwise, return as is
+
+    # Iterate through all edges and process 'maxspeed'
+    for u, v, data in graph.edges(data=True):
+        if 'maxspeed' in data:
+            data['maxspeed'] = get_first_speed(data['maxspeed'])  # Process and update 'maxspeed'
+
+    return graph
+
+def process_lists(graph):
+    """
+    Process the attributes in the edges of the given graph.
+    If any attribute value is a list, only keep the first item. Otherwise, leave it as is.
+
+    Parameters:
+        graph (networkx.Graph): The input graph with edges containing attributes.
+
+    Returns:
+        networkx.Graph: The graph with processed attributes, where list attributes are reduced to their first item.
+    """
+    # Function to extract the first item from a list if the attribute is a list
+    def get_first_item(attribute_value):
+        if isinstance(attribute_value, list):  # Check if the attribute value is a list
+            return attribute_value[0]  # Return the first item of the list
+        return attribute_value  # Otherwise, return the value as is
+
+    # Iterate through all edges and process their attributes
+    for u, v, data in graph.edges(data=True):
+        for attr, value in data.items():
+            data[attr] = get_first_item(value)  # Process each attribute
+
+    return graph
