@@ -1,3 +1,4 @@
+
 # Growing Urban Bicycle Networks - with an LTN twist
 
 This is code modified from the scientific paper [*Growing urban bicycle networks*](https://www.nature.com/articles/s41598-022-10783-y) by [M. Szell](http://michael.szell.net/), S. Mimar, T. Perlman, [G. Ghoshal](http://gghoshal.pas.rochester.edu/), and [R. Sinatra](http://www.robertasinatra.com/). It adapts the code to work with Low Traffic Neighbourhoods, in order to reduce the amount of kilometers of investment required whilst still providing a connected network plan. The LTNs are sourced from this project: [https://github.com/Froguin99/LTN-Detection](https://github.com/Froguin99/LTN-Detection). 
@@ -13,6 +14,10 @@ The code downloads and pre-processes data from OpenStreetMap, prepares points of
 *Video output from running the code on Paris, showing the growth of a bicycle network on a grid of seed points*
 
 ## Instructions
+
+### 0. IMPORTANT STEP FOR RUNNING AT THE MOMENT
+
+In order to run this code properly you will need to have downloaded scored_neighbourhoods_Newcastle Upon Tyne.gpkg and moved it to the folder \bikenwgrowth_external\data\newcastle\ . These are some example neighbourhoods (not necessarily LTNs) to use as testing (they are nicely spaced out to allow for examining of routes easier). 
 
 ### 1. Git clone the project _without_ the full history 
 
