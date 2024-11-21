@@ -1,7 +1,18 @@
 MUST
+edit plotting to show neighbourhoods and tesselation process
+grow by kms 
+tweak biketrack input to UK context of tags
+alter weighting to use LoS
+make combined ltns + tesselation points GT graph
+Create sub-graph from ltns within GT graph
+for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points
+
 
 
 OPTIONAL
+Circle packing between neighbourhoods
+Road gradient as a weight
+
 measure gt-abstract avg degree growth
 make visual distinction between covered and reached pois in cover plots
 add comments to all functions, https://www.datacamp.com/community/tutorials/docstrings-python
@@ -13,6 +24,11 @@ profile code?
 
 
 DONE
+X route between neighbourhood exit points
+X Create tesselation between neighbourhoods
+
+
+
 X make coverage + lcchighlight plot for paper (milan?, london?, moscow?)
 X fix: analysisplots: pois covered railwaystation not grid
 X plots: for each city: length ratio of grown/existing versus ratio of metric (efficiency)
