@@ -1736,19 +1736,33 @@ def get_neighbourhood_street_graph(gdf, debug=False):
     """ 
     # Add a unique ID column to the GeoDataFrame
     print(f"GeoDataFrame shape before adding ID: {gdf.shape}")
-
     gdf['ID'] = range(1, len(gdf) + 1)  # Adding ID column starting from 1
 
     # create bounding box slightly larger than neighbourhoods
     gdf_mercator = gdf.to_crs(epsg=3857)
-    gdf_mercator = gdf_mercator.buffer(1000)
+    gdf_mercator = gdf_mercator.buffer(10)
     gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
-    minx, miny, maxx, maxy = gdf_buffered.total_bounds
     
     # get driving network (we're only interested in streets cars could be on)
-    network = ox.graph_from_bbox(maxy, miny, maxx, minx, network_type='drive')
+    network = nx.MultiDiGraph()
+    for polygon in gdf_buffered.geometry:
+          net = ox.graph_from_polygon(polygon, network_type='drive')
+          network = nx.compose(network, net)
     nodes, edges = ox.graph_to_gdfs(network)
     edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
+    exclude_conditions = (
+        (edges['highway'].isin(['trunk', 'trunk_link', 'motorway', 'motorway_link',
+                                'primary', 'primary_link', 'secondary', 'secondary_link',
+                                'tertiary', 'tertiary_link'])) |
+        (edges['maxspeed'].isin(['60 mph', '70 mph', '40 mph', 
+                                 ('30 mph', '60 mph'), ('30 mph', '50 mph'), 
+                                 ('70 mph', '50 mph'), ('40 mph', '60 mph'), 
+                                 ('70 mph', '60 mph'), ('60 mph', '40 mph'), 
+                                 ('50 mph', '40 mph'), ('30 mph', '40 mph'), 
+                                 ('20 mph', '60 mph'), ('70 mph', '40 mph'), 
+                                 ('30 mph', '70 mph')]))
+    ) 
+    edges = edges[~exclude_conditions] # remove any high stress roads if we pick them up
 
     if debug == True:
         unique_ids = edges['ID'].dropna().unique()
