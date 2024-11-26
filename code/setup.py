@@ -42,9 +42,10 @@ import shapely
 from osgeo import gdal, osr
 from haversine import haversine, haversine_vector
 import pyproj
-from shapely.geometry import Point, MultiPoint, LineString, Polygon, MultiLineString, MultiPolygon, shape
+from shapely.geometry import Point, MultiPoint, LineString, Polygon, MultiLineString, MultiPolygon, shape, GeometryCollection
 import shapely.ops as ops
 from shapely.ops import unary_union
+from shapely.plotting import plot_line
 import geopandas as gpd
 import geojson
 import json
