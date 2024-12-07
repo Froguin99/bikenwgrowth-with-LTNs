@@ -419,6 +419,59 @@ def csv_to_ox(p, placeid, parameterid):
         os.remove(p + prefix + '_edges.csv')
     return G
 
+
+
+def csv_to_ox_highway(p, placeid, parameterid): #  this is a modification of the orignal csv_to_ox function to include
+    """ Load a networkx graph from _edges.csv and _nodes.csv
+    The edge file must have attributes u,v,osmid,maxspeed,highway,length
+    The node file must have attributes y,x,osmid
+    Only these attributes are loaded.
+    """
+    prefix = placeid + '_' + parameterid
+    compress = check_extract_zip(p, prefix)
+    
+    with open(p + prefix + '_edges.csv', 'r') as f:
+        header = f.readline().strip().split(",")
+
+        lines = []
+        for line in csv.reader(f, quotechar='"', delimiter=',', quoting=csv.QUOTE_ALL, skipinitialspace=True):
+            line_list = [c for c in line]
+            osmid = str(eval(line_list[header.index("osmid")])[0]) if isinstance(eval(line_list[header.index("osmid")]), list) else line_list[header.index("osmid")] # If this is a list due to multiedges, just load the first osmid
+            highway = line_list[header.index("highway")]
+            length = str(eval(line_list[header.index("length")])[0]) if isinstance(eval(line_list[header.index("length")]), list) else line_list[header.index("length")] # If this is a list due to multiedges, just load the first osmid
+
+            # Clean `maxspeed` to remove "mph" or other non-numeric characters
+            maxspeed_raw = line_list[header.index("maxspeed")].strip()
+            if not maxspeed_raw or not any(c.isdigit() for c in maxspeed_raw):  # Check for missing/invalid data
+                maxspeed = "0"  # Default maxspeed
+            else:
+                maxspeed = ''.join(filter(str.isdigit, maxspeed_raw)) 
+
+            line_string = "" + line_list[header.index("u")] + " "+ line_list[header.index("v")] + " " + osmid + " " + maxspeed + " " + highway + " " + length
+            lines.append(line_string)
+        G = nx.parse_edgelist(lines, nodetype = int, data = (("osmid", int),("maxspeed", int),("highway", str),("length", float)), create_using = nx.MultiDiGraph) # MultiDiGraph is necessary for OSMNX, for example for get_undirected(G) in utils_graph.py
+    with open(p + prefix + '_nodes.csv', 'r') as f:
+        header = f.readline().strip().split(",")
+        values_x = {}
+        values_y = {}
+        for line in csv.reader(f, quotechar='"', delimiter=',', quoting=csv.QUOTE_ALL, skipinitialspace=True):
+            line_list = [c for c in line]
+            osmid = int(line_list[header.index("osmid")])
+            values_x[osmid] = float(line_list[header.index("x")])
+            values_y[osmid] = float(line_list[header.index("y")])
+
+        nx.set_node_attributes(G, values_x, "x")
+        nx.set_node_attributes(G, values_y, "y")
+
+    if compress:
+        os.remove(p + prefix + '_nodes.csv')
+        os.remove(p + prefix + '_edges.csv')
+        
+    return G
+
+
+
+
 def calculate_weight(row):
     """
     Calculate new weight based on length and speed limit.
@@ -433,6 +486,12 @@ def calculate_weight(row):
     
     # Multiply the speed factor by the length to get the new weight
     return row['length'] * speed_factor
+
+
+
+
+
+
 
 def csv_to_ig(p, placeid, parameterid, cleanup=True, weighting=None):
     """ Load an ig graph from _edges.csv and _nodes.csv
@@ -2316,3 +2375,473 @@ def process_lists(graph):
             data[attr] = get_first_item(value)  # Process each attribute
 
     return graph
+
+
+
+def get_nearest_nodes_to_gdf(G, nodes_gdf):
+     """
+    Get the nearest node IDs from a graph G for the points in a GeoDataFrame.
+    
+    Parameters:
+        G (nx.MultiDiGraph): The graph to search for nearest nodes.
+        nodes_gdf (gpd.GeoDataFrame): GeoDataFrame containing point geometries.
+
+    Returns:
+        nearest_node_ids (pd.Series): A Pandas Series of nearest node IDs.
+    """
+     x_coords = nodes_gdf.geometry.x
+     y_coords = nodes_gdf.geometry.y
+     nearest_node_ids = ox.distance.nearest_nodes(G, x_coords, y_coords, return_dist=False)
+     
+     return nearest_node_ids
+
+
+
+
+
+def greedy_triangulation_ltns(ltn_points_gdf):
+    """
+    Function to create a greedy triangulation for LTN nodes only
+    Used to find the ID of ltn nodes' neighbours
+
+    parameters:
+        ltn_points_gdf (gpd.GeoDataFrame): GeoDataFrame containing LTN points
+
+    returns:
+    """
+    ltn_points_gdf = ltn_points_gdf.copy()  
+    ltn_points_gdf = ltn_points_gdf.to_crs('EPSG:3857')  # Convert to a metric CRS
+    
+    # Extract coordinates of points
+    coords = np.array([(point.x, point.y) for point in ltn_points_gdf.geometry])
+    
+    # Compute all possible edges with their distances
+    edges = []
+    for i, j in itertools.combinations(range(len(coords)), 2):
+        distance = np.linalg.norm(coords[i] - coords[j])
+        edges.append((i, j, distance))
+    
+    # Sort edges by distance
+    edges = sorted(edges, key=lambda x: x[2])
+    
+    selected_edges = []
+    existing_lines = GeometryCollection()
+    
+    # Iterate over edges
+    for i, j, distance in edges:
+        new_edge = LineString([coords[i], coords[j]])
+        if not existing_lines.crosses(new_edge):
+            selected_edges.append((i, j, distance))
+            existing_lines = unary_union([existing_lines, new_edge])
+    
+    # Create a GeoDataFrame for triangulated edges
+    lines = []
+    start_points = []
+    end_points = []
+    distances = []
+    for i, j, distance in selected_edges:
+        lines.append(LineString([coords[i], coords[j]]))
+        start_points.append(ltn_points_gdf.iloc[i]['osmid'])
+        end_points.append(ltn_points_gdf.iloc[j]['osmid'])
+        distances.append(distance)
+    
+    greedy_triangulation_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_points,
+        'end_osmid': end_points,
+        'distance': distances
+    }, crs=ltn_points_gdf.crs)
+    
+    return greedy_triangulation_gdf
+
+
+# get pairs of neighbourhoods to later route between
+def get_ltn_node_pairs(ltn_nodes, greedy_triangulation_ltns_gdf):
+    G_ltn = nx.Graph()
+    
+    # make networkx graph
+    for _, row in ltn_nodes.iterrows():
+        G_ltn.add_node(row['osmid'], geometry=row['geometry'], neighbourhood_id=row['neighbourhood_id'])
+    for _, row in greedy_triangulation_ltns_gdf.iterrows():
+        G_ltn.add_edge(row['start_osmid'], row['end_osmid'], distance=row['distance'], geometry=row['geometry'])
+    
+    # Now, for each node in the graph, find its neighbors and create node pairs
+    ltn_node_pairs = []
+    for node in G_ltn.nodes():
+        neighbors = list(G_ltn.neighbors(node)) 
+        for neighbor in neighbors:
+            if node < neighbor:  # To avoid duplicates, only add pairs once (node, neighbour) where node < neighbour
+                ltn_node_pairs.append((node, neighbor))
+    
+    return ltn_node_pairs
+
+
+
+
+def greedy_triangulation_all(ltn_points_gdf, tess_points_gdf):
+    
+     # give gdf points unqiue ids
+    ltn_points_gdf['id'] = range(1, len(ltn_points_gdf) + 1)
+    ltn_points_gdf['source'] = 'ltn'
+    tess_points_gdf['id'] = range(len(ltn_points_gdf) + 1, len(ltn_points_gdf) + 1 + len(tess_points_gdf))
+    tess_points_gdf['source'] = 'tess'
+
+    # ensure we are calculate distances in meters
+    ltn_points_gdf = ltn_points_gdf.to_crs('EPSG:3857')
+    tess_points_gdf = tess_points_gdf.to_crs('EPSG:3857')
+
+
+    all_points_gdf = gpd.GeoDataFrame(pd.concat([ltn_points_gdf, tess_points_gdf], ignore_index=True), crs=ltn_points_gdf.crs)
+
+    # Extract coordinates of points
+    points = list(all_points_gdf.geometry)
+    coords = np.array([(point.x, point.y) for point in points])
+    
+    # Compute all possible edges with their distances
+    edges = []
+    for i, j in itertools.combinations(range(len(coords)), 2):
+        distance = np.linalg.norm(coords[i] - coords[j])
+        edges.append((i, j, distance))
+    
+    # Sort edges by distance
+    edges = sorted(edges, key=lambda x: x[2])  # Sort by the distance (x[2])
+    
+    # Initialize triangulation
+    selected_edges = []
+    existing_lines = GeometryCollection()  # Use an empty GeometryCollection
+    
+    # Iterate over edges
+    for i, j, distance in edges:
+        new_edge = LineString([coords[i], coords[j]])
+        
+        # Check if this edge intersects existing edges
+        if not existing_lines.crosses(new_edge):
+            selected_edges.append((i, j, distance))
+            # Update existing lines by adding the new edge
+            existing_lines = unary_union([existing_lines, new_edge])
+
+    # Create a GeoDataFrame for triangulated edges with additional attributes
+    lines = []
+    start_osmids = []
+    end_osmids = []
+    distances = []
+    
+    for i, j, distance in selected_edges:
+        lines.append(LineString([coords[i], coords[j]]))
+        start_osmids.append(all_points_gdf.iloc[i]['osmid'])  # Store the index of the starting point
+        end_osmids.append(all_points_gdf.iloc[j]['osmid'])    # Store the index of the ending point
+        distances.append(distance)  # Store the distance for this edge
+    
+    # Create GeoDataFrame with attributes
+    greedy_triangulation_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_osmids,
+        'end_osmid': end_osmids,
+        'distance': distances
+    }, crs=ltn_points_gdf.crs)
+
+    
+    return greedy_triangulation_gdf, ltn_points_gdf, tess_points_gdf
+
+
+
+def compute_total_betweenness(shortest_paths, ebc_list):
+    """Calculate total betweenness centrality per shortest paths."""
+    total_betweenness = {}
+    for pair, edges in shortest_paths.items():
+        if edges is not None:
+            # Sum betweenness centrality for edges in the path
+            total_betweenness[pair] = sum(
+                centrality for edge, centrality in ebc_list if edge in edges
+            )
+        else:
+            total_betweenness[pair] = None
+
+    return total_betweenness
+
+
+def compute_path_lengths(shortest_paths, graph):
+    """Calculate total path lengths per shortest paths."""
+    path_lengths = {}
+    for (node1, node2), edges in shortest_paths.items():
+        if edges is not None:  # If a path exists
+            total_length = sum(graph[u][v]['distance'] for u, v in edges)
+            path_lengths[(node1, node2)] = total_length
+        else:  # No path
+            path_lengths[(node1, node2)] = None
+
+    return path_lengths
+
+
+def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_nodes, ltn_node_pairs):
+    """
+    Given the outputs of greedy_triangulation_all (GeoDataFrame of edges and node GeoDataFrames),
+    this function returns the edge betweenness centrality (ebc) for LTN nodes and other nodes.
+
+    Args:
+    - greedy_triangulation_all_gdf: GeoDataFrame containing the edges of the graph
+    - ltn_nodes: GeoDataFrame containing the LTN nodes
+    - tess_nodes: GeoDataFrame containing the tessellation nodes
+    - ltn_node_pairs: List of tuples of LTN node pairs to compute shortest paths between
+
+    Returns:
+    - ebc_ltn: Dictionary of edge betweenness centrality for LTN node pairs
+    - ebc_other: Dictionary of edge betweenness centrality for all other node pairs
+    """
+    # Create the graph from the triangulation GeoDataFrame
+    GT_abstract = nx.Graph()
+    for _, row in greedy_triangulation_all_gdf.iterrows():
+        start = row['start_osmid']
+        end = row['end_osmid']
+        distance = row['distance']
+        GT_abstract.add_edge(start, end, geometry=row['geometry'], distance=distance)
+
+    # Add node attributes
+    combined_gdf = pd.concat([ltn_nodes, tess_nodes], ignore_index=True)
+    attributes = combined_gdf.set_index('id').to_dict('index')
+    nx.set_node_attributes(GT_abstract, attributes)
+
+    # Calculate edge betweenness centrality (ebc)
+    ebc = nx.edge_betweenness_centrality(GT_abstract, weight= 'distance', normalized=True)
+    ebc_list = [(edge, centrality) for edge, centrality in ebc.items()]
+
+    # Separate LTN and non-LTN nodes
+    ltn_node_ids = set(ltn_nodes['id'])
+    all_node_ids = set(GT_abstract.nodes)
+    non_ltn_node_ids = all_node_ids - ltn_node_ids
+
+    # Shortest paths between LTN nodes
+    shortest_paths_ltn = {}
+    for node1, node2 in ltn_node_pairs:
+        path = nx.shortest_path(GT_abstract, source=node1, target=node2)
+        edges = list(nx.utils.pairwise(path))
+        shortest_paths_ltn[(node1, node2)] = edges
+    
+
+    # Shortest paths between all other node combinations
+    shortest_paths_other = {}
+    for node1, node2 in itertools.combinations(all_node_ids, 2):
+        if (node1, node2) not in shortest_paths_ltn:  # Avoid recomputing LTN-LTN pairs
+            path = nx.shortest_path(GT_abstract, source=node1, target=node2)
+            edges = list(nx.utils.pairwise(path))
+            shortest_paths_other[(node1, node2)] = edges
+
+    # Compute path lengths
+    path_lengths_ltn = compute_path_lengths(shortest_paths_ltn, GT_abstract)
+    path_lengths_other = compute_path_lengths(shortest_paths_other, GT_abstract)
+
+    # Compute total betweenness centrality for each group of shortest paths
+    ebc_ltn = compute_total_betweenness(shortest_paths_ltn, ebc_list)
+    ebc_other = compute_total_betweenness(shortest_paths_other, ebc_list)
+
+    # Sort by betweenness centrality
+    ebc_ltn = dict(sorted(ebc_ltn.items(), key=lambda item: item[1]))
+    ebc_other = dict(sorted(ebc_other.items(), key=lambda item: item[1]))
+
+    return ebc_ltn, ebc_other, shortest_paths_ltn, shortest_paths_other
+
+
+
+
+def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc_ltn, shortest_paths_other, ebc_other, previous_selected_edges=None, ltn_node_pairs=None):
+    """
+    Adjust a given triangulation to fit within the specified budget D,
+    ensuring that previously selected edges are always included.
+    Only after all ltns are connected do we move to include the growth of other areas.
+    """
+    # make a graph
+    G = nx.Graph()
+    for _, row in triangulation_gdf.iterrows():
+        G.add_edge(
+            row['start_osmid'],
+            row['end_osmid'],
+            geometry=row['geometry'],
+            distance=row['distance']
+        )
+
+    # Calculate edge betweenness centrality
+    bc = nx.edge_betweenness_centrality(G, weight='distance', normalized=True)
+    for (u, v), centrality in bc.items():
+        G[u][v]['ebc'] = centrality
+
+    total_length = 0
+    selected_edges = set(previous_selected_edges or [])
+
+    # Include previously selected edges so that we aren't starting from stratch each loop through
+    for u, v in selected_edges:
+        if G.has_edge(u, v):
+            total_length += G[u][v]['distance']
+
+    # Track the ltns which are connected
+    connected_ltn_pairs = set()
+
+    # Track all other connected pairs
+    connected_other_pairs = set()
+
+    # Prune for ltn node pairs first
+    for (node1, node2), centrality in ebc_ltn.items():
+        if node1 in G.nodes and node2 in G.nodes:
+            edges = shortest_paths_ltn.get((node1, node2), [])
+            if edges:  # If a valid path exists
+                path_length = sum(G[u][v]['distance'] for u, v in edges)
+                # Check if adding this path exceeds the budget D
+                if total_length + path_length > D:
+                    continue
+                # Add the edges to selected_edges
+                for u, v in edges:
+                    selected_edges.add((u, v))
+                total_length += path_length
+                connected_ltn_pairs.add((node1, node2))  # Mark the pair as connected
+
+    
+    # Check if all ltn node pairs are connected
+    if set(ltn_node_pairs).issubset(connected_ltn_pairs):
+        # Now move to all other connections (ltn to tess, tess to tess, tess to ltn etc)
+        for (node1, node2), centrality in ebc_other.items():
+            if node1 in G.nodes and node2 in G.nodes:
+                edges = shortest_paths_other.get((node1, node2), [])
+                if edges:  # If a valid path exists
+                    path_length = sum(G[u][v]['distance'] for u, v in edges)
+                    # Check if adding this path exceeds the budget D
+                    if total_length + path_length > D:
+                        continue
+                    # Add the edges to selected_edges
+                    for u, v in edges:
+                        selected_edges.add((u, v))
+                    total_length += path_length
+                    connected_other_pairs.add((node1, node2))
+    # missing_pairs = [pair for pair in ltn_node_pairs if pair not in connected_ltn_pairs]
+
+    # Build the adjusted GeoDataFrame
+    lines = []
+    distances = []
+    start_osmids = []
+    end_osmids = []
+    betweeness = []
+
+    for u, v in selected_edges:
+        lines.append(G[u][v]['geometry'])
+        distances.append(G[u][v]['distance'])
+        start_osmids.append(u)
+        end_osmids.append(v)
+        betweeness.append(G[u][v]['ebc'])
+
+    adjusted_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_osmids,
+        'end_osmid': end_osmids,
+        'distance': distances,
+        'betweeness': betweeness,
+    }, crs=triangulation_gdf.crs)
+
+    return adjusted_gdf, selected_edges, connected_ltn_pairs, connected_other_pairs
+
+
+
+def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
+    """
+    Perform a greedy triangulation 
+    """
+    # Assign unique IDs to the points
+    ltn_points_gdf['id'] = range(1, len(ltn_points_gdf) + 1)
+    ltn_points_gdf['source'] = 'ltn'
+    tess_points_gdf['id'] = range(len(ltn_points_gdf) + 1, len(ltn_points_gdf) + 1 + len(tess_points_gdf))
+    tess_points_gdf['source'] = 'tess'
+
+    # Ensure we are calculating distances in meters
+    ltn_points_gdf = ltn_points_gdf.to_crs('EPSG:3857')
+    tess_points_gdf = tess_points_gdf.to_crs('EPSG:3857')
+
+    all_points_gdf = gpd.GeoDataFrame(pd.concat([ltn_points_gdf, tess_points_gdf], ignore_index=True), crs=ltn_points_gdf.crs)
+
+    # Extract coordinates of points
+    points = list(all_points_gdf.geometry)
+    coords = np.array([(point.x, point.y) for point in points])
+    
+    # Compute all possible edges with their distances
+    edges = []
+    for i, j in itertools.combinations(range(len(coords)), 2):
+        distance = np.linalg.norm(coords[i] - coords[j])
+        edges.append((i, j, distance))
+    
+    # Sort edges by distance
+    edges = sorted(edges, key=lambda x: x[2])  # Sort by the distance (x[2])
+    
+    # Initialize triangulation
+    selected_edges = []
+    existing_lines = GeometryCollection()  # Use an empty GeometryCollection
+
+    # Iterate over edges
+    for i, j, distance in edges:
+        new_edge = LineString([coords[i], coords[j]])
+        
+        # Check if this edge intersects existing edges
+        if not existing_lines.crosses(new_edge):
+            selected_edges.append((i, j, distance))
+            # Update existing lines by adding the new edge
+            existing_lines = unary_union([existing_lines, new_edge])
+
+    # Create a GeoDataFrame for triangulated edges with additional attributes
+    lines = []
+    start_osmids = []
+    end_osmids = []
+    distances = []
+    
+    for i, j, distance in selected_edges:
+        lines.append(LineString([coords[i], coords[j]]))
+        start_osmids.append(all_points_gdf.iloc[i]['osmid'])  # Store the index of the starting point
+        end_osmids.append(all_points_gdf.iloc[j]['osmid'])    # Store the index of the ending point
+        distances.append(distance)  # Store the distance for this edge
+    
+    # Create GeoDataFrame with attributes
+    greedy_triangulation_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_osmids,
+        'end_osmid': end_osmids,
+        'distance': distances
+    }, crs=ltn_points_gdf.crs)
+
+    return greedy_triangulation_gdf, ltn_points_gdf, tess_points_gdf
+
+
+def gdf_to_nx_graph(gdf):
+    """
+    Converts a GeoDataFrame with start_osmid, end_osmid, and edge attributes 
+    to a NetworkX MultiDiGraph.
+
+    Parameters:
+    gdf (GeoDataFrame): A GeoDataFrame containing edges with 'start_osmid', 'end_osmid', 
+                        and other edge attributes (e.g., 'geometry', 'distance', 'betweeness').
+
+    Returns:
+    NetworkX MultiDiGraph: A NetworkX graph with nodes as 'start_osmid' and 'end_osmid', and edge attributes.
+    """
+    GT_abstract_nx = nx.MultiDiGraph()
+
+    # Add edges to the graph manually using start_osmid and end_osmid
+    for _, row in gdf.iterrows():
+        u = row['start_osmid']
+        v = row['end_osmid']
+        data = {
+            'geometry': row['geometry'],
+            'distance': row['distance'],
+            'betweeness': row['betweeness']
+        }
+        GT_abstract_nx.add_edge(u, v, **data)
+
+    return GT_abstract_nx
+
+
+
+def deweight_edges(GT, tag_lts):
+    """
+    Undo the edge weighting by dividing the 'length' attribute by the LTS value.
+    Operates only on the GT subgraph (not the original G_weighted graph).
+    The division is based on the 'highway' attribute using the LTS values in `tag_lts`.
+    """
+    for u, v, key, data in GT.edges(keys=True, data=True):
+        highway = data.get('highway')  # Get the highway type
+        if highway:
+            lts = tag_lts.get(highway, 1)  # Get LTS value for the highway, defaulting to 1
+            if lts > 0:  # Ensure valid LTS value (non-zero)
+                data['length'] /= lts  # Divide length by the LTS value to undo the modification
