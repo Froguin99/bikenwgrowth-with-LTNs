@@ -1203,8 +1203,7 @@ def calculate_metrics(
                                                "efficiency_local": 0, "directness_lcc_linkwise": 0,
                                                "directness_all_linkwise": 0, "overlap_neighbourhood": 0},
     buffer_walk=500, numnodepairs=500, verbose=False, return_cov=True, G_prev=ig.Graph(),
-    cov_prev=Polygon(), ignore_GT_abstract=False, Gexisting={}, Gneighbourhoods=None
-):
+    cov_prev=Polygon(), ignore_GT_abstract=False, Gexisting={}, Gneighbourhoods=None):
     """Calculates all metrics (using the keys from calcmetrics)."""
 
     output = {key: 0 for key in calcmetrics}
@@ -2641,8 +2640,6 @@ def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_node
     return ebc_ltn, ebc_other, shortest_paths_ltn, shortest_paths_other
 
 
-
-
 def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc_ltn, shortest_paths_other, ebc_other, previous_selected_edges=None, ltn_node_pairs=None):
     """
     Adjust a given triangulation to fit within the specified budget D,
@@ -2738,6 +2735,9 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
 
 
 
+
+
+
 def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
     """
     Perform a greedy triangulation 
@@ -2811,7 +2811,7 @@ def gdf_to_nx_graph(gdf):
 
     Parameters:
     gdf (GeoDataFrame): A GeoDataFrame containing edges with 'start_osmid', 'end_osmid', 
-                        and other edge attributes (e.g., 'geometry', 'distance', 'betweeness').
+                        and other edge attributes (e.g., 'geometry', 'weight', 'betweeness').
 
     Returns:
     NetworkX MultiDiGraph: A NetworkX graph with nodes as 'start_osmid' and 'end_osmid', and edge attributes.
@@ -2824,7 +2824,7 @@ def gdf_to_nx_graph(gdf):
         v = row['end_osmid']
         data = {
             'geometry': row['geometry'],
-            'distance': row['distance'],
+            'weight': row['weight'],
             'betweeness': row['betweeness']
         }
         GT_abstract_nx.add_edge(u, v, **data)
