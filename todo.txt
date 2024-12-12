@@ -1,18 +1,37 @@
 MUST
+
+SAVE LTNS + TESSELATION AS NNIDS FOR ANALYSIS
+
+
 edit plotting to show neighbourhoods and tesselation process
-grow by kms 
 tweak biketrack input to UK context of tags
 alter weighting to use LoS
-make combined ltns + tesselation points GT graph
-Create sub-graph from ltns within GT graph
 for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points
+manage no path found between routenodepairs when node is on one way trunk road 
+
+rustworkx for speeding up routing
+
+do proper weighting - will need more tags in the cvs file
+
+run a comparison of weighted, weightined with cycle = 0 and unweighted routing. results seem dramatic atm
+
+join up to useful part of neighbourhoods?
+
+Snap to stroke when no network to snap to 
+
+snap to largest cycle component in cell rather than just nearest? 
+
+Get into format that can be used in later analysis 
+
+Join up to "useful" part of a neighbourhood
+
+Road gradient as a weight (or link gradient too?)
+
 
 
 
 OPTIONAL
 Circle packing between neighbourhoods
-Road gradient as a weight
-
 measure gt-abstract avg degree growth
 make visual distinction between covered and reached pois in cover plots
 add comments to all functions, https://www.datacamp.com/community/tutorials/docstrings-python
@@ -26,6 +45,12 @@ profile code?
 DONE
 X route between neighbourhood exit points
 X Create tesselation between neighbourhoods
+X grow by kms 
+X make combined ltns + tesselation points GT graph
+X Create sub-graph from ltns within GT graph
+X make it work in loop -  X 
+X neighbourhood exit points - DONE BUT SLOW 
+X Plot ebc on graph to show that edges are kinda weird (didnt use distance orignally)
 
 
 
