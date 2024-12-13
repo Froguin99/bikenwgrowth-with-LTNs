@@ -2824,7 +2824,7 @@ def gdf_to_nx_graph(gdf):
         v = row['end_osmid']
         data = {
             'geometry': row['geometry'],
-            'weight': row['weight'],
+            'weight': row['distance'],
             'betweeness': row['betweeness']
         }
         GT_abstract_nx.add_edge(u, v, **data)
