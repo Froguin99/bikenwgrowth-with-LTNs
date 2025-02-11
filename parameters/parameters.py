@@ -1,6 +1,6 @@
 # PARAMETERS
 # These are values to loop through for different runs
-poi_source = "neighbourhoods" # railwaystation, grid, neighbourhoods, tessellation
+poi_source = "LTNs_tessellation"#"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure = "betweenness" # betweenness, closeness, random
 weighting = True # True, False
 
