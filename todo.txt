@@ -4,9 +4,9 @@ SAVE LTNS + TESSELATION AS NNIDS FOR ANALYSIS
 
 
 edit plotting to show neighbourhoods and tesselation process
+
 tweak biketrack input to UK context of tags
-alter weighting to use LoS
-for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points
+
 manage no path found between routenodepairs when node is on one way trunk road 
 
 rustworkx for speeding up routing
@@ -17,8 +17,6 @@ run a comparison of weighted, weightined with cycle = 0 and unweighted routing. 
 
 join up to useful part of neighbourhoods?
 
-Snap to stroke when no network to snap to 
-
 snap to largest cycle component in cell rather than just nearest? 
 
 Get into format that can be used in later analysis 
@@ -27,6 +25,7 @@ Join up to "useful" part of a neighbourhood
 
 Road gradient as a weight (or link gradient too?)
 
+Currently builds on trunk roads - disallow
 
 
 
@@ -43,6 +42,10 @@ profile code?
 
 
 DONE
+X for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points 
+X G_biketrack streets look like they're missing geometry
+X alter weighting to use LoS
+X Snap to stroke when no network to snap to 
 X route between neighbourhood exit points
 X Create tesselation between neighbourhoods
 X grow by kms 
