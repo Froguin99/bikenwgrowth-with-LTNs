@@ -15,6 +15,7 @@ from tqdm.notebook import tqdm
 import warnings
 import shutil
 
+
 # Math/Data
 import math
 import numpy as np
@@ -46,6 +47,7 @@ import pyproj
 from shapely.geometry import Point, MultiPoint, LineString, Polygon, MultiLineString, MultiPolygon, shape, GeometryCollection
 import shapely.ops as ops
 from shapely.ops import unary_union
+from shapely.ops import nearest_points
 from shapely.plotting import plot_line
 import geopandas as gpd
 import geojson
@@ -57,6 +59,7 @@ from shapely.geometry import shape, mapping
 from rasterio.io import MemoryFile
 from tesspy import Tessellation
 import momepy
+from pyproj import Transformer
 
 
 

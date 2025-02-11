@@ -417,11 +417,12 @@ def csv_to_ox(p, placeid, parameterid):
     if compress:
         os.remove(p + prefix + '_nodes.csv')
         os.remove(p + prefix + '_edges.csv')
+
     return G
 
 
 
-def csv_to_ox_highway(p, placeid, parameterid): #  this is a modification of the orignal csv_to_ox function to include
+def csv_to_ox_highway(p, placeid, parameterid): #  this is a modification of the orignal csv_to_ox function to include maxspeed
     """ Load a networkx graph from _edges.csv and _nodes.csv
     The edge file must have attributes u,v,osmid,maxspeed,highway,length
     The node file must have attributes y,x,osmid
@@ -1132,11 +1133,14 @@ def calculate_poiscovered(G, cov, nnids):
     return poiscovered
 
 
-def calculate_efficiency_global(G, numnodepairs = 500, normalized = True):
+def calculate_efficiency_global(G, numnodepairs = 500, normalized = True, debug=False):
     """Calculates global network efficiency.
     If there are more than numnodepairs nodes, measure over pairings of a 
     random sample of numnodepairs nodes.
     """
+    if "x" not in G.vs.attributes() or "y" not in G.vs.attributes():
+        raise KeyError("Graph vertices are missing 'x' or 'y' attributes.")
+
 
     if G is None: return 0
     if G.vcount() > numnodepairs:
@@ -1150,14 +1154,21 @@ def calculate_efficiency_global(G, numnodepairs = 500, normalized = True):
     if not d_ij: return 0  # No distances available
     ###
 
+    
+
     EG = sum([1/d for d in d_ij if d != 0])
+
+    if debug:
+        print("EG: ", EG)
     if not normalized: return EG
     pairs = list(itertools.permutations(nodeindices, 2))
     if len(pairs) < 1: return 0
     l_ij = dist_vector([(G.vs[p[0]]["y"], G.vs[p[0]]["x"]) for p in pairs],
                             [(G.vs[p[1]]["y"], G.vs[p[1]]["x"]) for p in pairs]) # must be in format lat,lon = y,x
     EG_id = sum([1/l for l in l_ij if l != 0])
-    
+
+    if debug:
+        print("EG_id", EG_id)
     # re comment this block later
     #if (EG / EG_id) > 1: # This should not be allowed to happen!
     #    pp.pprint(d_ij)
@@ -1171,9 +1182,11 @@ def calculate_efficiency_global(G, numnodepairs = 500, normalized = True):
     # assert EG / EG_id <= 1, "Normalized EG > 1. This should not be possible."
 
 
-
-
+    if EG_id == 0:
+        print("EG_id is zero. Returning default efficiency value.")
+        return 0  # Or another appropriate default value
     return EG / EG_id
+
 
 
 def calculate_efficiency_local(G, numnodepairs = 500, normalized = True):
@@ -1215,7 +1228,7 @@ def calculate_metrics(
         cl = G.clusters()
         LCC = cl.giant()
 
-        # EFFICIENCY
+        # EFFICIENCY 
         if not ignore_GT_abstract:
             if verbose and ("efficiency_global" in calcmetrics or "efficiency_local" in calcmetrics): print("Calculating efficiency...")
             if "efficiency_global" in calcmetrics:
@@ -1565,7 +1578,7 @@ def ig_to_shapely(G):
 
 # Neighbourhoods
 
-def load_neighbourhoods(path):
+def load_neighbourhoods(path, debug=False):
     """
     Load all neighbourhoods geopackages with 'scored_neighbourhoods_' in the filename. 
 
@@ -1598,6 +1611,9 @@ def load_neighbourhoods(path):
                     if city_name.startswith(prefix):
                         city_name = city_name[len(prefix):]
                     
+                    if debug:
+                        print(filename)
+                        print(gpkg_dir)
                     # Add the cleaned filename (city_name) and GeoDataFrame to the dictionary
                     geopackages[city_name] = gdf
                 except Exception as e:
@@ -1612,6 +1628,39 @@ def load_neighbourhoods(path):
 print("Loaded functions.\n")
 
 
+def ox_gpkg_to_graph(gpkg_path, nodes_layer='nodes', edges_layer='edges', u_col='u', v_col='v', key_col='key'):
+    """
+    Reads a GeoPackage created from ox.graph_to_geopackage, splits it into nodes and edges, resets the MultiIndex, and creates an OSMnx graph.
+
+    Parameters:
+        gpkg_path (str): Path to the GeoPackage file.
+        nodes_layer (str): Name of the nodes layer in the GeoPackage. Default is 'nodes'.
+        edges_layer (str): Name of the edges layer in the GeoPackage. Default is 'edges'.
+        u_col (str): Column name for the start node ID in the edges layer. Default is 'u'.
+        v_col (str): Column name for the end node ID in the edges layer. Default is 'v'.
+        key_col (str): Column name for the edge key in the edges layer. Default is 'key'.
+
+    Returns:
+        G (networkx.MultiDiGraph): The OSMnx graph created from the nodes and edges.
+    """
+    # Read the nodes and edges layers from the GeoPackage
+    nodes_gdf = gpd.read_file(gpkg_path, layer=nodes_layer)
+    edges_gdf = gpd.read_file(gpkg_path, layer=edges_layer)
+
+    # set the index for nodes_gdf
+    nodes_gdf.set_index('osmid', inplace=True)
+
+    # Ensure the required columns exist in the edges_gdf
+    if not all(col in edges_gdf.columns for col in [u_col, v_col, key_col]):
+        raise ValueError(f"edges_gdf must contain columns '{u_col}', '{v_col}', and '{key_col}'.")
+
+    # Set the MultiIndex for edges_gdf
+    edges_gdf.set_index([u_col, v_col, key_col], inplace=True)
+
+    # Create the OSMnx graph
+    G = ox.graph_from_gdfs(nodes_gdf, edges_gdf)
+
+    return G
 
 def nearest_edge_between_polygons(G, poly1, poly2):
     """Find the shortest path between the edges of two polygons based on routing distance."""
@@ -2030,69 +2079,44 @@ def get_neighbourhood_streets_split(gdf, debug):
 
 
 
-def get_exit_nodes(neighbourhoods, G_carall, neighbourhood_buffer_distance=10, street_buffer_distance=100):
+def get_exit_nodes(neighbourhoods, G_biketrack, buffer_distance=5):
     """
-    Get nodes within a buffer of neighbourhood boundaries and street edges.
-
-    Parameters:
-    - neighbourhoods: dict, dictionary of neighbourhood GeoDataFrames
-    - G_carall: OSMnx graph, the graph of the area
-    - neighbourhood_buffer_distance: float, buffer distance in meters for neighbourhoods
-    - street_buffer_distance: float, buffer distance in meters for streets
-
-    Returns:
-    - nodes_within_buffer: GeoDataFrame containing nodes within the specified buffer
-    """
+    Find bike track (and LTNs if present) nodes within a buffer of neighbourhood boundaries.
     
-    # Load graph and set CRS if not present
-    if 'crs' not in G_carall.graph:
-        G_carall.graph['crs'] = 'epsg:4326'
-
-    # Load neighbourhoods and convert graph to GeoDataFrames
-    edges = ox.graph_to_gdfs(G_carall, nodes=False, edges=True)
-    nodes = ox.graph_to_gdfs(G_carall, nodes=True, edges=False)
-
-    # Add unique IDs to each polygon in neighbourhoods and buffer them
-    boundary_buffers = {}
+    Args:
+        neighbourhoods (dict): Dictionary of neighbourhood GeoDataFrames
+        G_biketrack (networkx.Graph): Bike track network graph
+        buffer_distance (int): Buffer distance in meters
+        
+    Returns:
+        GeoDataFrame: Nodes within the buffer
+    """
+    # Get bike track nodes
+    nodes = ox.graph_to_gdfs(G_biketrack, nodes=True, edges=False)
+    # Create buffer around neighbourhood boundaries
+    all_buffers = []
     for place_name, gdf in neighbourhoods.items():
-        exploded_gdf = gdf.explode().reset_index(drop=True)
-        exploded_gdf['neighbourhood_id'] = exploded_gdf.index  # Unique ID for each polygon
-        buffer = exploded_gdf.boundary.to_crs(epsg=3857).buffer(neighbourhood_buffer_distance).to_crs(exploded_gdf.crs)  # Buffering
-        boundary_buffers[place_name] = (buffer, exploded_gdf)
-
-    # Combine all buffers into a single GeoDataFrame and set the geometry
-    buffer_geometries = [boundary_buffers[place][0] for place in boundary_buffers]
-    neighbourhood_geometries = [boundary_buffers[place][1]['neighbourhood_id'] for place in boundary_buffers]
-
-    # Create a GeoDataFrame from the geometries
-    boundary_buffers_gdf = gpd.GeoDataFrame(geometry=pd.concat(buffer_geometries, ignore_index=True))
-    boundary_buffers_gdf['neighbourhood_id'] = pd.concat(neighbourhood_geometries, ignore_index=True)
-
-    # Ensure CRS is set correctly
-    nodes_within_buffer = gpd.sjoin(nodes, boundary_buffers_gdf, how='inner', op='intersects')
-
-    street_buffers = {}
-    for place_name, gdf in neighbourhoods.items():
-        street_nodes, street_edges, neighbourhood_graph = get_neighbourhood_streets_split(gdf, debug=False)
-        # Buffering edges with correct CRS
-        street_buffer = street_edges.to_crs(epsg=3857).geometry.buffer(street_buffer_distance).to_crs(street_edges.crs)
-        street_buffers[place_name] = gpd.GeoDataFrame(geometry=street_buffer, crs=street_edges.crs)
-
-    streets_buffer_gdf = gpd.GeoDataFrame(
-        pd.concat([gdf for gdf in street_buffers.values()]), 
-        crs=next(iter(street_buffers.values())).crs
-    )
-
-    # Drop the 'index_right' column to avoid conflict
-    if 'index_right' in nodes_within_buffer.columns:
-        nodes_within_buffer = nodes_within_buffer.drop(columns=['index_right'])
-
-    nodes_within_buffer = gpd.sjoin(nodes_within_buffer, streets_buffer_gdf, how='inner', op='intersects')
-    # Clean up columns 
-    if 'index_right0' in nodes_within_buffer.columns:
-        nodes_within_buffer = nodes_within_buffer.drop(columns=['index_right0', 'index_right1', 'index_right2'], errors='ignore')
-
-    return nodes_within_buffer
+        # Explode multi-part geometries and create boundary buffer
+        exploded = gdf.explode().reset_index(drop=True)
+        buffered = exploded.boundary.to_crs(epsg=3857).buffer(buffer_distance).to_crs(exploded.crs)
+        # Store buffers with neighbourhood IDs
+        buffer_gdf = gpd.GeoDataFrame({
+            'neighbourhood_id': exploded.index,
+            'geometry': buffered
+        }, crs=exploded.crs)
+        
+        all_buffers.append(buffer_gdf)
+    
+    # Combine all buffers into a single GeoDataFrame
+    combined_buffers = gpd.GeoDataFrame(pd.concat(all_buffers, ignore_index=True), crs=all_buffers[0].crs)
+    
+    # Find nodes intersecting with any buffer
+    nodes_in_buffer = gpd.sjoin(nodes, combined_buffers, how='inner', op='intersects')
+    
+    # Clean up columns
+    nodes_in_buffer = nodes_in_buffer[['geometry', 'neighbourhood_id']].reset_index()
+    
+    return nodes_in_buffer
 
 
 def greedy_triangulation_routing_GT_abstracts(G, pois, weighting=None, prune_quantiles=[1], prune_measure="betweenness"):
@@ -2804,24 +2828,57 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
     return greedy_triangulation_gdf, ltn_points_gdf, tess_points_gdf
 
 
-def gdf_to_nx_graph(gdf):
+
+
+def gdf_to_nx_graph(gdf, target_crs="EPSG:4326"):
     """
     Converts a GeoDataFrame with start_osmid, end_osmid, and edge attributes 
-    to a NetworkX MultiDiGraph.
+    to a NetworkX MultiDiGraph and adds 'x' and 'y' coordinates as longitude and latitude.
 
     Parameters:
     gdf (GeoDataFrame): A GeoDataFrame containing edges with 'start_osmid', 'end_osmid', 
                         and other edge attributes (e.g., 'geometry', 'weight', 'betweeness').
+    geo_crs (str): The CRS to transform to for longitude and latitude (default is "EPSG:4326").
 
     Returns:
-    NetworkX MultiDiGraph: A NetworkX graph with nodes as 'start_osmid' and 'end_osmid', and edge attributes.
+    NetworkX MultiDiGraph: A NetworkX graph with nodes having 'x' (longitude), 'y' (latitude), 
+                           'x_original', and 'y_original' attributes, and edges with 
+                           'geometry', 'weight', and 'betweeness' attributes.
     """
     GT_abstract_nx = nx.MultiDiGraph()
 
-    # Add edges to the graph manually using start_osmid and end_osmid
+    # Detect the CRS of the input GeoDataFrame
+    original_crs = gdf.crs
+    if original_crs is None:
+        raise ValueError("Input GeoDataFrame does not have a CRS defined.")
+
+    # Create a transformer to convert from the original CRS to geographic CRS
+    transformer = Transformer.from_crs(original_crs, target_crs, always_xy=True)
+
+    # Add edges and ensure nodes have 'x', 'y', 'x_original', and 'y_original' attributes
     for _, row in gdf.iterrows():
         u = row['start_osmid']
         v = row['end_osmid']
+        
+        # Extract start and end coordinates from the geometry
+        start_coords_original = row['geometry'].coords[0]
+        end_coords_original = row['geometry'].coords[-1]
+        
+        # Transform coordinates to longitude and latitude
+        start_coords_geo = transformer.transform(*start_coords_original)
+        end_coords_geo = transformer.transform(*end_coords_original)
+        
+        # Add or update the nodes with both original and geographic coordinates
+        if not GT_abstract_nx.has_node(u):
+            GT_abstract_nx.add_node(u, 
+                                    x=start_coords_geo[0], y=start_coords_geo[1],  # Longitude, Latitude
+                                    x_original=start_coords_original[0], y_original=start_coords_original[1])  # Original CRS
+        if not GT_abstract_nx.has_node(v):
+            GT_abstract_nx.add_node(v, 
+                                    x=end_coords_geo[0], y=end_coords_geo[1],  # Longitude, Latitude
+                                    x_original=end_coords_original[0], y_original=end_coords_original[1])  # Original CRS
+        
+        # Add edge with attributes
         data = {
             'geometry': row['geometry'],
             'weight': row['distance'],
@@ -2830,6 +2887,8 @@ def gdf_to_nx_graph(gdf):
         GT_abstract_nx.add_edge(u, v, **data)
 
     return GT_abstract_nx
+
+
 
 
 
@@ -2845,3 +2904,110 @@ def deweight_edges(GT, tag_lts):
             lts = tag_lts.get(highway, 1)  # Get LTS value for the highway, defaulting to 1
             if lts > 0:  # Ensure valid LTS value (non-zero)
                 data['length'] /= lts  # Divide length by the LTS value to undo the modification
+
+
+
+def snap_to_largest_stroke(point, snapthreshold, stroke_gdf):
+    if not isinstance(point, Point):  # Ensure it's a valid point
+        return point  
+
+    # set to meters
+    stroke_gdf = stroke_gdf.to_crs(epsg=3857)
+    
+    # Find strokes within snapthreshold distance
+    stroke_gdf["distance"] = stroke_gdf.geometry.distance(point)
+    nearby_strokes = stroke_gdf[stroke_gdf["distance"] <= snapthreshold]
+
+    if nearby_strokes.empty:
+        print("No street found for point:", point)
+        return point  # No match found, return original point
+
+    # Select the stroke with the highest n_segments
+    largest_stroke = nearby_strokes.loc[nearby_strokes["n_segments"].idxmax()]
+
+    # Snap to the nearest point on this stroke
+    nearest_point = nearest_points(point, largest_stroke.geometry)[1]
+    
+    return nearest_point
+
+
+
+
+
+def compute_routed_distance_for_GT(row, G):
+    """
+    Compute the routed_distance for a given row of greedy_gdf using graph G.
+    
+    Depending on the ltn_origin and ltn_destination flags:
+      - If both are True: try all combinations of exit points for origin and destination.
+      - If one is True: try all exit points for that endpoint and the single non-LTN endpoint.
+      - Otherwise: compute the direct shortest path between start_osmid and end_osmid.
+      
+    Returns the minimum route length found or np.nan if no route is found.
+    """
+    # Shortcut variables
+    origin = row['start_osmid']
+    dest = row['end_osmid']
+    
+    # Case 1: Both endpoints are in an LTN.
+    if row['ltn_origin'] and row['ltn_destination']:
+        try:
+            origin_neigh = osmid_to_neigh[origin]
+            dest_neigh = osmid_to_neigh[dest]
+        except KeyError:
+            # One of the osmids is missing in the centroids mapping
+            return np.nan
+
+        origin_exits = neigh_to_exits.get(origin_neigh, [])
+        dest_exits = neigh_to_exits.get(dest_neigh, [])
+        
+        distances = []
+        for o_exit in origin_exits:
+            for d_exit in dest_exits:
+                try:
+                    d_val = nx.shortest_path_length(G, source=o_exit, target=d_exit, weight="length")
+                    distances.append(d_val)
+                except nx.NetworkXNoPath:
+                    continue  # Skip if no path exists for this pair
+        return min(distances) if distances else np.nan
+
+    # Case 2: Only the origin is in an LTN.
+    elif row['ltn_origin'] and not row['ltn_destination']:
+        try:
+            origin_neigh = osmid_to_neigh[origin]
+        except KeyError:
+            return np.nan
+
+        origin_exits = neigh_to_exits.get(origin_neigh, [])
+        distances = []
+        for o_exit in origin_exits:
+            try:
+                d_val = nx.shortest_path_length(G, source=o_exit, target=dest, weight="length")
+                distances.append(d_val)
+            except nx.NetworkXNoPath:
+                continue
+        return min(distances) if distances else np.nan
+
+    # Case 3: Only the destination is in an LTN.
+    elif not row['ltn_origin'] and row['ltn_destination']:
+        try:
+            dest_neigh = osmid_to_neigh[dest]
+        except KeyError:
+            return np.nan
+
+        dest_exits = neigh_to_exits.get(dest_neigh, [])
+        distances = []
+        for d_exit in dest_exits:
+            try:
+                d_val = nx.shortest_path_length(G, source=origin, target=d_exit, weight="length")
+                distances.append(d_val)
+            except nx.NetworkXNoPath:
+                continue
+        return min(distances) if distances else np.nan
+
+    # Case 4: Neither endpoint is in an LTN.
+    else:
+        try:
+            return nx.shortest_path_length(G, source=origin, target=dest, weight="length")
+        except nx.NetworkXNoPath:
+            return np.nan
