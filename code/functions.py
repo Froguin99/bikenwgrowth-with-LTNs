@@ -3011,3 +3011,130 @@ def compute_routed_distance_for_GT(row, G):
             return nx.shortest_path_length(G, source=origin, target=dest, weight="length")
         except nx.NetworkXNoPath:
             return np.nan
+        
+
+
+def compute_routed_path_for_GT(row, G):
+    """
+    Compute the shortest path for a given row of greedy_gdf using graph G.
+    
+    Depending on the ltn_origin and ltn_destination flags:
+      - If both are True: try all combinations of exit points for origin and destination.
+      - If one is True: try all exit points for that endpoint and the single non-LTN endpoint.
+      - Otherwise: compute the direct shortest path between start_osmid and end_osmid.
+      
+    Returns the shortest path (list of nodes) found or np.nan if no path exists.
+    """
+    origin = row['start_osmid']
+    dest = row['end_osmid']
+    
+    min_path = None
+    min_length = float('inf')
+    
+    # Case 1: Both endpoints are in an LTN
+    if row['ltn_origin'] and row['ltn_destination']:
+        try:
+            origin_neigh = osmid_to_neigh[origin]
+            dest_neigh = osmid_to_neigh[dest]
+        except KeyError:
+            return np.nan
+
+        origin_exits = neigh_to_exits.get(origin_neigh, [])
+        dest_exits = neigh_to_exits.get(dest_neigh, [])
+        
+        for o_exit in origin_exits:
+            for d_exit in dest_exits:
+                try:
+                    # Calculate path length first
+                    length = nx.shortest_path_length(G, o_exit, d_exit, weight='length')
+                    if length < min_length:
+                        # Update with the actual path
+                        path = nx.shortest_path(G, o_exit, d_exit, weight='length')
+                        min_length = length
+                        min_path = path
+                except nx.NetworkXNoPath:
+                    continue
+        return min_path if min_path is not None else np.nan
+
+    # Case 2: Only origin is in an LTN
+    elif row['ltn_origin'] and not row['ltn_destination']:
+        try:
+            origin_neigh = osmid_to_neigh[origin]
+        except KeyError:
+            return np.nan
+
+        origin_exits = neigh_to_exits.get(origin_neigh, [])
+        
+        for o_exit in origin_exits:
+            try:
+                length = nx.shortest_path_length(G, o_exit, dest, weight='length')
+                if length < min_length:
+                    path = nx.shortest_path(G, o_exit, dest, weight='length')
+                    min_length = length
+                    min_path = path
+            except nx.NetworkXNoPath:
+                continue
+        return min_path if min_path is not None else np.nan
+
+    # Case 3: Only destination is in an LTN
+    elif not row['ltn_origin'] and row['ltn_destination']:
+        try:
+            dest_neigh = osmid_to_neigh[dest]
+        except KeyError:
+            return np.nan
+
+        dest_exits = neigh_to_exits.get(dest_neigh, [])
+        
+        for d_exit in dest_exits:
+            try:
+                length = nx.shortest_path_length(G, origin, d_exit, weight='length')
+                if length < min_length:
+                    path = nx.shortest_path(G, origin, d_exit, weight='length')
+                    min_length = length
+                    min_path = path
+            except nx.NetworkXNoPath:
+                continue
+        return min_path if min_path is not None else np.nan
+
+    # Case 4: Neither endpoint is in an LTN
+    else:
+        try:
+            return nx.shortest_path(G, origin, dest, weight='length')
+        except nx.NetworkXNoPath:
+            return np.nan
+        
+
+
+
+def calculate_sp_route_distance(route, G):
+    """
+    Find the total distance of a shortest path route in a given graph.
+    If there are multiple edges between two nodes, choose the one with the minimum 'length'.
+    """
+    # Check if route is valid (i.e. it's a list and not np.nan)
+    if not isinstance(route, list):
+        return np.nan
+
+    total_length = 0
+    # Iterate through consecutive pairs of nodes in the route.
+    for u, v in zip(route[:-1], route[1:]):
+        # Get the edge data between u and v.
+        edge_data = G.get_edge_data(u, v)
+        if edge_data is None:
+            print("No edge")
+            # If no edge exists between these nodes, return np.nan
+            return np.nan
+        
+        # In a MultiGraph, edge_data is a dict of dicts.
+        # We choose the edge with the smallest 'length' attribute.
+        # Each edge's attributes are stored in the inner dictionaries.
+        try:
+            edge_attrs = list(edge_data.values())
+            min_edge_length = min(attr.get('length', 0) for attr in edge_attrs)
+        except Exception as e:
+            print(f"Error processing edge from {u} to {v}: {e}")
+            return np.nan
+
+        total_length += min_edge_length
+
+    return total_length
