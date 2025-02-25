@@ -4,7 +4,7 @@ import csv
 import sys
 import os
 import watermark
-import pickle
+import dill as pickle
 import itertools
 import random
 import zipfile
