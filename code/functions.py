@@ -2500,6 +2500,26 @@ def get_ltn_node_pairs(ltn_nodes, greedy_triangulation_ltns_gdf):
 
 
 
+# get pairs of neighbourhoods to later route between
+def get_node_pairs(nodes, greedy_triangulation_ltns_gdf):
+    G = nx.Graph()
+    
+    # make networkx graph
+    for _, row in nodes.iterrows():
+        G.add_node(row['osmid'], geometry=row['geometry'], neighbourhood_id=row['neighbourhood_id'])
+    for _, row in greedy_triangulation_ltns_gdf.iterrows():
+        G.add_edge(row['start_osmid'], row['end_osmid'], distance=row['distance'], geometry=row['geometry'])
+    
+    # Now, for each node in the graph, find its neighbors and create node pairs
+    node_pairs = []
+    for node in G.nodes():
+        neighbors = list(G.neighbors(node)) 
+        for neighbor in neighbors:
+            if node < neighbor:  # To avoid duplicates, only add pairs once (node, neighbour) where node < neighbour
+                node_pairs.append((node, neighbor))
+    
+    return node_pairs
+
 
 def greedy_triangulation_all(ltn_points_gdf, tess_points_gdf):
     
@@ -2616,7 +2636,7 @@ def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_node
     for _, row in greedy_triangulation_all_gdf.iterrows():
         start = row['start_osmid']
         end = row['end_osmid']
-        distance = row['distance']
+        distance = row['sp_lts_distance']
         GT_abstract.add_edge(start, end, geometry=row['geometry'], distance=distance)
 
     # Add node attributes
@@ -2625,7 +2645,7 @@ def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_node
     nx.set_node_attributes(GT_abstract, attributes)
 
     # Calculate edge betweenness centrality (ebc)
-    ebc = nx.edge_betweenness_centrality(GT_abstract, weight= 'distance', normalized=True)
+    ebc = nx.edge_betweenness_centrality(GT_abstract, weight= 'sp_lts_distance', normalized=True)
     ebc_list = [(edge, centrality) for edge, centrality in ebc.items()]
 
     # Separate LTN and non-LTN nodes
@@ -2681,9 +2701,9 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
         )
 
     # Calculate edge betweenness centrality
-    bc = nx.edge_betweenness_centrality(G, weight='distance', normalized=True)
-    for (u, v), centrality in bc.items():
-        G[u][v]['ebc'] = centrality
+    #bc = nx.edge_betweenness_centrality(G, weight='distance', normalized=True)
+    #for (u, v), centrality in bc.items():
+    #    G[u][v]['ebc'] = centrality
 
     total_length = 0
     selected_edges = set(previous_selected_edges or [])
@@ -2738,21 +2758,19 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
     distances = []
     start_osmids = []
     end_osmids = []
-    betweeness = []
+
 
     for u, v in selected_edges:
         lines.append(G[u][v]['geometry'])
         distances.append(G[u][v]['distance'])
         start_osmids.append(u)
         end_osmids.append(v)
-        betweeness.append(G[u][v]['ebc'])
 
     adjusted_gdf = gpd.GeoDataFrame({
         'geometry': lines,
         'start_osmid': start_osmids,
         'end_osmid': end_osmids,
         'distance': distances,
-        'betweeness': betweeness,
     }, crs=triangulation_gdf.crs)
 
     return adjusted_gdf, selected_edges, connected_ltn_pairs, connected_other_pairs
@@ -2829,6 +2847,60 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
 
 
 
+def get_sp_ebc_weights(node_pairs, shortest_paths, graph, edge_betweenness, edge_length_key='sp_lts_distance'):
+    """
+    
+    :param node_pairs: List of tuples (start_node, end_node) representing node pairs.
+    :param shortest_paths: List of lists, where each inner list contains nodes in the shortest path for the corresponding node pair.
+    :param graph: NetworkX graph object or similar structure with an edge data retrieval method.
+    :param edge_betweenness: Dictionary with edge tuples as keys and betweenness values as values.
+    :param edge_length_key: Key used to access edge length from the graph's edge attributes (default: 'sp_lts_distance').
+    :return: Dictionary mapping node pairs to their computed metric values.
+
+    here we are attempting to calculate the importance of each connection in the network along the path between two points
+    for this we use sum of { (ebc of edge * (length of edge/sum of length of edges) ) } / number-of-edges, per path
+    """
+    result_dict = {}
+    
+    for i, (start_node, end_node) in enumerate(node_pairs):
+        path = shortest_paths[i]
+        
+        # Extract edges in the path (consecutive node pairs)
+        edges_in_path = [(path[j], path[j + 1]) for j in range(len(path) - 1)]
+        
+        # Collect edge lengths and betweenness values
+        edges_info = []
+        for u, v in edges_in_path:
+            edge_data = graph.get_edge_data(u, v)
+            if not edge_data:
+                raise ValueError(f"Edge ({u}, {v}) not found in graph for path {path}")
+            
+            length = edge_data.get(edge_length_key, 0)
+            ebc = edge_betweenness.get((u, v), edge_betweenness.get((v, u)))
+            
+            if ebc is None:
+                raise KeyError(f"Edge betweenness not found for edge ({u}, {v}) or ({v}, {u})")
+            
+            edges_info.append((length, ebc))
+        
+        # Calculate total length of edges in the path
+        total_length = sum(length for length, _ in edges_info)
+        num_edges = len(edges_info)
+        
+        if num_edges == 0:
+            result_dict[(start_node, end_node)] = 0.0
+            continue
+        
+        weighted_sum = sum(ebc * (length / total_length) for length, ebc in edges_info) if total_length > 0 else 0.0
+        
+        # Store the final metric value
+        result_dict[(start_node, end_node)] = weighted_sum / num_edges
+    
+    return result_dict
+
+
+
+
 
 def gdf_to_nx_graph(gdf, target_crs="EPSG:4326"):
     """
@@ -2882,7 +2954,6 @@ def gdf_to_nx_graph(gdf, target_crs="EPSG:4326"):
         data = {
             'geometry': row['geometry'],
             'weight': row['distance'],
-            'betweeness': row['betweeness']
         }
         GT_abstract_nx.add_edge(u, v, **data)
 
