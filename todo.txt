@@ -1,7 +1,7 @@
 MUST
 
-SAVE LTNS + TESSELATION AS NNIDS FOR ANALYSIS
 
+random and betwennes finishing a slightly different values...
 
 edit plotting to show neighbourhoods and tesselation process
 
@@ -11,11 +11,7 @@ manage no path found between routenodepairs when node is on one way trunk road
 
 rustworkx for speeding up routing
 
-do proper weighting - will need more tags in the cvs file
-
 run a comparison of weighted, weightined with cycle = 0 and unweighted routing. results seem dramatic atm
-
-join up to useful part of neighbourhoods?
 
 snap to largest cycle component in cell rather than just nearest? 
 
@@ -25,11 +21,12 @@ Join up to "useful" part of a neighbourhood
 
 Road gradient as a weight (or link gradient too?)
 
-Currently builds on trunk roads - disallow
+Currently builds on trunk roads - disallow?
 
 
 
 OPTIONAL
+SAVE LTNS + TESSELATION AS NNIDS FOR ANALYSIS
 Circle packing between neighbourhoods
 measure gt-abstract avg degree growth
 make visual distinction between covered and reached pois in cover plots
@@ -42,6 +39,7 @@ profile code?
 
 
 DONE
+X ranking order incorrect, changed to new metric of betwenness 
 X for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points 
 X G_biketrack streets look like they're missing geometry
 X alter weighting to use LoS
@@ -54,6 +52,8 @@ X Create sub-graph from ltns within GT graph
 X make it work in loop -  X 
 X neighbourhood exit points - DONE BUT SLOW 
 X Plot ebc on graph to show that edges are kinda weird (didnt use distance orignally)
+X do proper weighting - will need more tags in the cvs file
+
 
 
 
