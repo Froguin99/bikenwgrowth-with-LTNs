@@ -1,7 +1,7 @@
 MUST
 
 
-random and betwennes finishing a slightly different values...
+population coverage
 
 edit plotting to show neighbourhoods and tesselation process
 
@@ -31,7 +31,7 @@ Circle packing between neighbourhoods
 measure gt-abstract avg degree growth
 make visual distinction between covered and reached pois in cover plots
 add comments to all functions, https://www.datacamp.com/community/tutorials/docstrings-python
-simulate random link growth?
+
 split up functions.py?
 existing analysis: union carall and biketrack for biketrackcarall?
 zip result pickles?
@@ -39,6 +39,8 @@ profile code?
 
 
 DONE
+X simulate random link growth?
+X random and betwennes finishing a slightly different values...
 X ranking order incorrect, changed to new metric of betwenness 
 X for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points 
 X G_biketrack streets look like they're missing geometry
