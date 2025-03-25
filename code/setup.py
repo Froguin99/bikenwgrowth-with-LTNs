@@ -20,6 +20,7 @@ import shutil
 import math
 import numpy as np
 import pandas as pd
+from itertools import combinations
 
 # Network
 import igraph as ig
@@ -60,6 +61,9 @@ from rasterio.io import MemoryFile
 from tesspy import Tessellation
 import momepy
 from pyproj import Transformer
+import geopy
+from geopy.distance import geodesic
+import ukcensusapi.Nomisweb as Api
 
 
 

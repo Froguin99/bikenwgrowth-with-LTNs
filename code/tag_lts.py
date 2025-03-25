@@ -14,8 +14,8 @@ tag_lts = {
     "unclassified": 3,
     "residential": 2,
     "living_street": 2,
-    "cycleway": 1, 
-    "track": 1,
-    "path": 1,
-    "bridleway": 1
+    "cycleway": 0, 
+    "track": 0,
+    "path": 0,
+    "bridleway": 0
 }
