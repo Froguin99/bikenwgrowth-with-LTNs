@@ -3,6 +3,9 @@
 poi_source = "LTNs_tessellation"#"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure = "betweenness" # betweenness, closeness, random
 weighting = True # True, False
+methods_plotting = False # choose if we show the methods in plots as the code runs
+export = True # chose to export geopackages mid-way through running, for use in QGIS etc.
+prune_measures = ["betweenness", "random", "pct"]
 
 SERVER = False # Whether the code runs on the server (important to avoid parallel job conflicts)
 
@@ -28,6 +31,11 @@ poiparameters = {"railwaystation":{'railway':['station','halt']}#, # should mayb
 # 04
 buffer_walk = 500 # Buffer in m for coverage calculations. (How far people are willing to walk)
 numnodepairs = 500 # Number of node pairs to consider for random sample to calculate directness (O(numnodepairs^2), so better not go over 1000)
+#os.environ["NOMIS_API_KEY"] = "" # put your NOMIS API key here. See more at https://github.com/virgesmith/UKCensusAPI/tree/main
+# https://www.nomisweb.co.uk/api/v01/help			
+
+
+
 
 #05
 nodesize_grown = 7.5

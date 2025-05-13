@@ -214,6 +214,7 @@ def dist_vector(v1_list, v2_list):
     dist_list = haversine_vector(v1_list, v2_list, unit="m") # [(lat,lon)], [(lat,lon)]
     return dist_list
 
+
 def osm_to_ig(node, edge, weighting):
     """ Turns a node and edge dataframe into an igraph Graph.
     """
@@ -1853,8 +1854,13 @@ def get_neighbourhood_street_graph(gdf, debug=False):
     # get driving network (we're only interested in streets cars could be on)
     network = nx.MultiDiGraph()
     for polygon in gdf_buffered.geometry:
-          net = ox.graph_from_polygon(polygon, network_type='drive')
-          network = nx.compose(network, net)
+        try:
+            # Attempt to get network for the buffered polygon
+            net = ox.graph_from_polygon(polygon, network_type='drive')
+            network = nx.compose(network, net)
+        except ValueError as e:
+            print(f"Skipping a polygon with no roads: {e}")
+            continue  
     nodes, edges = ox.graph_to_gdfs(network)
     edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
     exclude_conditions = (
@@ -2697,16 +2703,14 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
             row['start_osmid'],
             row['end_osmid'],
             geometry=row['geometry'],
-            distance=row['distance']
+            distance=row['distance'],
+            sp_true_distance=row['sp_true_distance'],
+            sp_lts_distance=row['sp_lts_distance'],
+            eucl_dist = row['eucl_dist']
         )
 
-    # Calculate edge betweenness centrality
-    #bc = nx.edge_betweenness_centrality(G, weight='distance', normalized=True)
-    #for (u, v), centrality in bc.items():
-    #    G[u][v]['ebc'] = centrality
-
     total_length = 0
-    selected_edges = set(previous_selected_edges or [])
+    selected_edges = set(tuple(sorted(edge)) for edge in (previous_selected_edges or [])) # use tuple to ensure we don't double count edges
 
     # Include previously selected edges so that we aren't starting from stratch each loop through
     for u, v in selected_edges:
@@ -2724,15 +2728,16 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
         if node1 in G.nodes and node2 in G.nodes:
             edges = shortest_paths_ltn.get((node1, node2), [])
             if edges:  # If a valid path exists
-                path_length = sum(G[u][v]['distance'] for u, v in edges)
+                # Calculate new edges and their length
+                new_edges = [tuple(sorted((u, v))) for u, v in edges if tuple(sorted((u, v))) not in selected_edges]
+                new_length = sum(G[min(u, v)][max(u, v)]['distance'] for u, v in new_edges)
                 # Check if adding this path exceeds the budget D
-                if total_length + path_length > D:
+                if total_length + new_length > D:
                     continue
                 # Add the edges to selected_edges
-                for u, v in edges:
-                    selected_edges.add((u, v))
-                total_length += path_length
-                connected_ltn_pairs.add((node1, node2))  # Mark the pair as connected
+                selected_edges.update(new_edges)
+                total_length += new_length
+                connected_ltn_pairs.add((node1, node2))
 
     
     # Check if all ltn node pairs are connected
@@ -2742,22 +2747,43 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
             if node1 in G.nodes and node2 in G.nodes:
                 edges = shortest_paths_other.get((node1, node2), [])
                 if edges:  # If a valid path exists
-                    path_length = sum(G[u][v]['distance'] for u, v in edges)
+                    new_edges = [tuple(sorted((u, v))) for u, v in edges if tuple(sorted((u, v))) not in selected_edges]
+                    new_length = sum(G[min(u, v)][max(u, v)]['distance'] for u, v in new_edges)
                     # Check if adding this path exceeds the budget D
-                    if total_length + path_length > D:
+                    if total_length + new_length > D:
                         continue
                     # Add the edges to selected_edges
-                    for u, v in edges:
-                        selected_edges.add((u, v))
-                    total_length += path_length
+                    selected_edges.update(new_edges)
+                    total_length += new_length
                     connected_other_pairs.add((node1, node2))
     # missing_pairs = [pair for pair in ltn_node_pairs if pair not in connected_ltn_pairs]
+        
+    # edges which aren't in a shortest path won't have been selected
+        # we will add these last, as they are the least important
+        unused_edges = []
+        for _, row in triangulation_gdf.iterrows():
+            e = tuple(sorted((row['start_osmid'], row['end_osmid'])))
+            dist = row['distance']
+            if e not in selected_edges:
+                unused_edges.append((dist, e))
+        unused_edges.sort(key=lambda x: x[0])
+        for dist, edge in unused_edges:
+            if total_length + dist <= D:
+                selected_edges.add(edge)
+                total_length += dist
+            else:
+                break
+    
+
 
     # Build the adjusted GeoDataFrame
     lines = []
     distances = []
     start_osmids = []
     end_osmids = []
+    sp_true_distance=[]
+    sp_lts_distance=[]
+    eucl_dist = []
 
 
     for u, v in selected_edges:
@@ -2765,15 +2791,25 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
         distances.append(G[u][v]['distance'])
         start_osmids.append(u)
         end_osmids.append(v)
+        sp_true_distance.append(G[u][v]['sp_true_distance'])
+        sp_lts_distance.append(G[u][v]['sp_lts_distance'])
+        eucl_dist.append(G[u][v]['eucl_dist'])
 
     adjusted_gdf = gpd.GeoDataFrame({
         'geometry': lines,
         'start_osmid': start_osmids,
         'end_osmid': end_osmids,
         'distance': distances,
+        'sp_true_distance': sp_true_distance,
+        'sp_lts_distance': sp_lts_distance,
+        'eucl_dist': eucl_dist
     }, crs=triangulation_gdf.crs)
 
     return adjusted_gdf, selected_edges, connected_ltn_pairs, connected_other_pairs
+
+
+
+
 
 
 
@@ -2800,10 +2836,10 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
     points = list(all_points_gdf.geometry)
     coords = np.array([(point.x, point.y) for point in points])
     
-    # Compute all possible edges with their distances
+    # Compute all possible edges 
     edges = []
     for i, j in itertools.combinations(range(len(coords)), 2):
-        distance = np.linalg.norm(coords[i] - coords[j])
+        distance = np.linalg.norm(coords[i] - coords[j]) # this distance is not accurate, see later on 
         edges.append((i, j, distance))
     
     # Sort edges by distance
@@ -2823,6 +2859,17 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
             # Update existing lines by adding the new edge
             existing_lines = unary_union([existing_lines, new_edge])
 
+    ## get better distance measurements
+    all_points_gdf = all_points_gdf.to_crs('EPSG:4326')
+    node_distances = {}
+    for (idx1, row1), (idx2, row2) in itertools.combinations(all_points_gdf.iterrows(), 2):
+        coord1 = (row1.geometry.y, row1.geometry.x)  # (lat, lon)
+        coord2 = (row2.geometry.y, row2.geometry.x)  # (lat, lon)
+        # Compute geodesic distance
+        distance = geodesic(coord1, coord2).meters  # or .kilometers
+        node_distances[(idx1, idx2)] = distance
+
+
     # Create a GeoDataFrame for triangulated edges with additional attributes
     lines = []
     start_osmids = []
@@ -2833,6 +2880,7 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
         lines.append(LineString([coords[i], coords[j]]))
         start_osmids.append(all_points_gdf.iloc[i]['osmid'])  # Store the index of the starting point
         end_osmids.append(all_points_gdf.iloc[j]['osmid'])    # Store the index of the ending point
+        distance = node_distances[(i,j)]
         distances.append(distance)  # Store the distance for this edge
     
     # Create GeoDataFrame with attributes
@@ -2954,6 +3002,9 @@ def gdf_to_nx_graph(gdf, target_crs="EPSG:4326"):
         data = {
             'geometry': row['geometry'],
             'weight': row['distance'],
+            'sp_true_distance': row['sp_true_distance'],   
+            'sp_lts_distance': row['sp_lts_distance'],
+            'eucl_dist' : row['eucl_dist'],
         }
         GT_abstract_nx.add_edge(u, v, **data)
 
@@ -3209,3 +3260,100 @@ def calculate_sp_route_distance(route, G):
         total_length += min_edge_length
 
     return total_length
+
+def add_lsoa_population(lsoa_bound):
+    """
+    Add population data to LSOA GeoDataFrame using UKCensusAPI.
+    
+    Args:
+        lsoa_bound (gpd.GeoDataFrame): Input GeoDataFrame with LSOA codes in 'geo_code'
+        
+    Returns:
+        gpd.GeoDataFrame: Original GeoDataFrame with new 'pop' column added
+    """
+    api = Api.Nomisweb(PATH["data"] + placeid)
+    
+    # Extract LSOA codes and LAD names from input data
+    lsoa_codes = lsoa_bound['geo_code'].tolist()
+    lad_names = lsoa_bound['lad_name'].unique().tolist()
+    
+    # Configure census query
+    query_params = {
+        "CELL": "0",
+        "date": "latest",
+        "RURAL_URBAN": "0",
+        "select": "GEOGRAPHY_CODE,OBS_VALUE",
+        "MEASURES": "20100",
+        "geography": api.get_geo_codes(api.get_lad_codes(lad_names), 
+        Api.Nomisweb.GeoCodeLookup["LSOA11"]) #use 2011 boundaries to match with PCT data
+    }
+    
+    # Get and filter population data
+    population = api.get_data("KS101EW", query_params) # population table
+    population = population[population.GEOGRAPHY_CODE.isin(lsoa_codes)]
+    
+    # Merge with our lsoa dataframe
+    return lsoa_bound.merge(
+        population[['GEOGRAPHY_CODE', 'OBS_VALUE']],
+        left_on='geo_code',
+        right_on='GEOGRAPHY_CODE',
+        how='left'
+    ).drop(columns=['GEOGRAPHY_CODE']).rename(columns={'OBS_VALUE': 'pop'})
+
+
+
+
+
+def get_building_populations(lsoa_bound, boundary):
+    # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
+    
+    buildings = ox.features.features_from_polygon(
+        boundary.unary_union,
+        tags={'building': True}
+    )
+    buildings = buildings[['building', 'geometry']].reset_index(drop=True)
+
+    # drop non-residential buildings
+    building_categories = ['apartments', 'terrace', 'residential', 'hall_of_residence',
+        'dormitory', 'tower', 'house', 'shelter', 'semidetached_house',
+        'bungalow', 'detached', 'cabin', 'yes', 'barracks', 'annexe',
+        'farm', 'houseboat', 'static_caravan'] # buliding types to keep
+
+    buildings = buildings[
+        buildings['building'].str.lower().isin([c.lower() for c in building_categories])
+    ].copy().reset_index(drop=True)
+
+    # Keep only rows where the geometry is a Polygon or MultiPolygon (some buildings are tagged as points)
+    buildings = buildings[buildings.geometry.type.isin(['Polygon', 'MultiPolygon'])].reset_index(drop=True)
+    buildings = buildings.to_crs(lsoa_bound.crs)
+    buildings = gpd.overlay(buildings, lsoa_bound, how='intersection')
+    buildings = buildings[['building', 'geometry']]
+
+    buildings = buildings.to_crs(epsg=3857) # to work in meters
+    buildings['area'] = buildings['geometry'].area # find area
+    if debug:
+        print(buildings['building'].unique())
+    buildings = buildings.to_crs(4326)
+    buildings = buildings.to_crs(lsoa_bound.crs)
+    buildings_joined = gpd.sjoin(buildings, lsoa_bound[['pop', 'geometry']], how='left', predicate='intersects')
+
+    # Compute the total building area per LSOA.
+    total_area = buildings_joined.groupby('index_right')['area'].sum().reset_index().rename(columns={'area': 'total_area'})
+    buildings_joined = buildings_joined.merge(total_area, on='index_right')
+    buildings_joined['pop_exact'] = (buildings_joined['area'] / buildings_joined['total_area']) * buildings_joined['pop']
+    def assign_pop(group): # assign population to buildings, but avoid decimal numbers as you can't have 0.7 of a person!
+        group['pop_floor'] = np.floor(group['pop_exact'])
+        group['pop_frac'] = group['pop_exact'] - group['pop_floor']
+        remainder = int(group['pop'].iloc[0] - group['pop_floor'].sum())
+        group['pop_assigned'] = group['pop_floor']
+        if remainder > 0:
+            group.loc[group['pop_frac'].nlargest(remainder).index, 'pop_assigned'] += 1
+        return group.astype({'pop_assigned': 'int'})
+    buildings = buildings_joined.groupby('index_right', group_keys=False).apply(assign_pop)
+    if debug:
+        buildings.plot(column='pop_assigned')
+    buildings = buildings[['building', 'geometry', 'pop_assigned']].reset_index(drop=True)
+
+    return buildings
+
+
