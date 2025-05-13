@@ -1,4 +1,5 @@
 PATH = {}
+PATH["example-data"] = "../example-data/"
 PATH["parameters"] = "../parameters/"
 PATH["data"] = "../../bikenwgrowth_external/data/"
 PATH["plots"] = "../../bikenwgrowth_external/plots/"
