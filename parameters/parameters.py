@@ -1,4 +1,7 @@
 # PARAMETERS
+ltn_plausiablity_score = 50 # this is the value for desiding how "strict" we are will classifying LTNs. a value of 0 would be every neighbourhood
+							# and a value of 100 would be 0 neighbourhoods
+                            # around 50-55 is a good value to start with, as from prioir analysis this is a realistic indicator of it being a true LTN zone. 
 # These are values to loop through for different runs
 poi_source = "LTNs_tessellation"#"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure = "betweenness" # betweenness, closeness, random
@@ -18,7 +21,7 @@ prune_measures = {"betweenness": "Bq", "closeness": "Cq", "random": "Rq"}
 prune_quantiles = [x/40 for x in list(range(1, 41))] # The quantiles where the GT should be pruned using the prune_measure
 networktypes = ["biketrack", "carall", "bikeable", "biketrackcarall", "biketrack_onstreet", "bikeable_offstreet"] # Existing infrastructures to analyze
 
-# 02
+# 03
 gridl = 1707 # in m, for generating the grid
 # https://en.wikipedia.org/wiki/Right_triangle#Circumcircle_and_incircle
 # 2*0.5 = a+a-sqrt(2)a   |   1 = a(2-sqrt2)   |   a = 1/(2-sqrt2) = 1.707
@@ -28,7 +31,7 @@ poiparameters = {"railwaystation":{'railway':['station','halt']}#, # should mayb
                  #"busstop":{'highway':'bus_stop'}
                 }
 
-# 04
+# 05
 buffer_walk = 500 # Buffer in m for coverage calculations. (How far people are willing to walk)
 numnodepairs = 500 # Number of node pairs to consider for random sample to calculate directness (O(numnodepairs^2), so better not go over 1000)
 #os.environ["NOMIS_API_KEY"] = "" # put your NOMIS API key here. See more at https://github.com/virgesmith/UKCensusAPI/tree/main
@@ -37,7 +40,7 @@ numnodepairs = 500 # Number of node pairs to consider for random sample to calcu
 
 
 
-#05
+#06
 nodesize_grown = 7.5
 plotparam = {"bbox": (1280,1280),
 			"dpi": 96,
@@ -81,7 +84,7 @@ analysis_existing_rowkeys = {"bikeable": 0, "bikeable_offstreet": 1, "biketrack"
 # CONSTANTS
 # These values should be set once and not be changed
 
-# 01
+# 02
 osmnxparameters = {'car30': {'network_type':'drive', 'custom_filter':'["maxspeed"~"^30$|^20$|^15$|^10$|^5$|^20 mph|^15 mph|^10 mph|^5 mph"]', 'export': True, 'retain_all': True},
                    'carall': {'network_type':'drive', 'custom_filter': None, 'export': True, 'retain_all': False},
                    'bike_cyclewaytrack': {'network_type':'bike', 'custom_filter':'["cycleway"~"track"]', 'export': False, 'retain_all': True},
@@ -101,7 +104,7 @@ osmnxparameters = {'car30': {'network_type':'drive', 'custom_filter':'["maxspeed
 # https://wiki.openstreetmap.org/wiki/Key:cyclestreet
 
 
-# 02
+# 03
 snapthreshold = 300 # in m, tolerance for snapping POIs to network
 # 300 m works well for zoom resolution 8 on tesselation (points never leave their hexagons)
 
