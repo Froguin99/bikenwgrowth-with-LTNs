@@ -5,26 +5,21 @@ This is code modified from the scientific paper [*Growing urban bicycle networks
 
 The code downloads and pre-processes data from OpenStreetMap, prepares points of interest, runs simulations, measures and saves the results, creates videos and plots. 
 
-**Paper**: [https://www.nature.com/articles/s41598-022-10783-y](https://www.nature.com/articles/s41598-022-10783-y)  
-**Data repository**: [zenodo.5083049](https://zenodo.org/record/5083049)  
-**Visualization**: [GrowBike.Net](https://growbike.net)  
-**Videos & Plots**: [https://growbike.net/download](https://growbike.net/download)
+**Orignal Paper**: [https://www.nature.com/articles/s41598-022-10783-y](https://www.nature.com/articles/s41598-022-10783-y)  
 
-[![Video output from running the code on Paris, showing the growth of a bicycle network on a grid of seed points](readmevideo.gif)](https://growbike.net/city/paris)
-*Video output from running the code on Paris, showing the growth of a bicycle network on a grid of seed points*
+**Recent conferance paper**: [https://zenodo.org/records/15231749](https://zenodo.org/records/15231749)
+
+[![Example of using demand based growth on Newcastle Upon Tyne, United Kingdom](readmevideo.gif)]()
+*Example of using demand based growth on Newcastle Upon Tyne, United Kingdom*
 
 ## Instructions
-
-### 0. IMPORTANT STEP FOR RUNNING AT THE MOMENT
-
-In order to run this code properly you will need to have downloaded scored_neighbourhoods_Newcastle Upon Tyne.gpkg and moved it to the folder \bikenwgrowth_external\data\newcastle\ . These are some example neighbourhoods (not necessarily LTNs) to use as testing (they are nicely spaced out to allow for examining of routes easier). 
 
 ### 1. Git clone the project _without_ the full history 
 
 Run from your terminal:
 
 ```
-git clone -b main --single-branch https://github.com/mszell/bikenwgrowth --depth 1
+git clone -b main --single-branch https://github.com/Froguin99/bikenwgrowth-with-LTNs --depth 1
 ```
 
 ### 2. Install the conda environment `growbikenet`
@@ -61,41 +56,22 @@ python -m ipykernel install --user --name=growbikenet
 This allows you to run Jupyter with the kernel `growbikenet` (Kernel > Change Kernel > growbikenet)
 
 
-### 3a. Run the code locally
+### 3. Run the code locally
 
 Single (or few/small) cities can be run locally by a manual, step-by-step execution of Jupyter notebooks:
 
-1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Leave default values to run the code on two small cities.
+1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Leave default values to run the code on two small cities. Currently only local authority districts in the North East of the UK can be used. However, if you'd like to get further places working, raise an issue of the tracker and we can work on it!
 2. Navigate to the [`code`](code/) folder.
-3. Run notebooks 01 and 02 once to download and prepare all networks and POIs.  
-4. Run notebooks 03, 04, 05 for each parameter set (see below), set in [`parameters/parameters.py`](parameters/parameters.py)
-5. Optional: Run 06 to create videos.
-6. Optional: Further notebooks named with `X_` can be run if needed to generate extra results or data.
+3. Run notebooks 01, 02, 03 once to download and prepare all networks and POIs.  
+4. Run notebooks 04, 05, 06 for each parameter set (see below), set in [`parameters/parameters.py`](parameters/parameters.py)
 
-### 3b. Run the code on an HPC cluster with SLURM
 
-For multiple, esp. large, cities, running the code on a high performance computing cluster is strongly suggested as the tasks are easy to paralellize. The shell scripts are written for [SLURM](https://slurm.schedmd.com/overview.html).  
-
-1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below.
-2. Run 01 and 02 once locally to download and prepare all networks and POIs (The alternative is server-side `sbatch scripts/download.job`, but OSMNX throws too many connection issues, so manual supervision is needed)
-3. Upload `code/*.py`, `parameters/*`, `scripts/*`
-4. Run: `./mastersbatch_analysis.sh`
-5. Run, if needed: `./mastersbatch_export.sh`
-6. After all is finished, run: `./cleanup.sh`
-7. Recommended, run: `./fixresults.sh` (to clean up results in case of amended data from repeated runs)
 
 ## Folder structure and output
 The main folder/repo is `bikenwgrowth`, containing Jupyter notebooks (`code/`), preprocessed data (`data/`), parameters (`parameters/`), result plots (`plots/`), HPC server scripts and jobs (`scripts/`).
 
 Most of the generated data output (network plots, videos, results, exports, logs) makes up many GBs and is stored in the separate external folder `bikenwgrowth_external`. To set up different paths, edit [`code/path.py`](code/path.py)
 
-## Parameter sets 
-1. `prune_measure = "betweenness"`, `poi_source =  "railwaystation"`  
-2. `prune_measure = "betweenness"`, `poi_source =  "grid"`  
-3. `prune_measure = "closeness"`, `poi_source =  "railwaystation"`  
-4. `prune_measure = "closeness"`, `poi_source =  "grid"`  
-5. `prune_measure = "random"`, `poi_source =  "railwaystation"`  
-6. `prune_measure = "random"`, `poi_source =  "grid"` 
 
 ## Populating cities.csv
 
