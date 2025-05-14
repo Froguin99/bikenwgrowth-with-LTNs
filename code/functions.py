@@ -3357,3 +3357,36 @@ def get_building_populations(lsoa_bound, boundary):
     return buildings
 
 
+def find_bounding_lines(centroids, lines_gdf):
+    """
+    centroids: GeoSeries of points from the center of slivers
+    lines_gdf: greedy triangulation
+    
+    Returns a dict mapping each centroid‐index to a list of three line‐indices.
+    """
+    # keep (idx, geom) tuples so we can recover original indices
+    lines_idx_geom = list(lines_gdf.geometry.items())  
+    raw_lines      = [geom for _, geom in lines_idx_geom]
+    triangles = list(polygonize(raw_lines)) # build polygons from greedy triangulation
+    result = {}
+    for cent_idx, pt in centroids.items():
+        # find the triangle containing this point
+        tri = next((t for t in triangles if t.contains(pt)), None)
+        if tri is None:
+            result[cent_idx] = []
+            continue
+        # extract its three edges
+        coords = list(tri.exterior.coords)  # last==first
+        tri_edges = [LineString([coords[j], coords[j+1]]) for j in range(3)]
+        # for each edge, find the matching original line‐index
+        bound_idxs = []
+        for edge in tri_edges:
+            rev = LineString(edge.coords[::-1])
+            match = next(
+                (idx for idx, geom in lines_idx_geom 
+                 if geom.equals(edge) or geom.equals(rev)),
+                None)
+            if match is not None:
+                bound_idxs.append(match)
+        result[cent_idx] = bound_idxs
+    return result
