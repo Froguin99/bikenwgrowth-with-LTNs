@@ -23,11 +23,6 @@ dependencies:
   - aws-c-sdkutils
   - aws-checksums
   - aws-crt-cpp
-  - aws-sdk-cpp
-  - azure-core-cpp
-  - azure-identity-cpp
-  - azure-storage-blobs-cpp
-  - azure-storage-common-cpp
   - babel
   - beautifulsoup4
   - bleach
@@ -167,7 +162,6 @@ dependencies:
   - libhwloc=2.11.1
   - libiconv=1.17
   - libintl=0.22.5
-  - libintl-devel=0.22.5
   - libjpeg-turbo=3.0.0
   - libkml=1.3.0
   - liblapack=3.9.0
