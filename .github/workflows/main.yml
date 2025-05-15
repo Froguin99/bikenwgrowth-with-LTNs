@@ -1,0 +1,19 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test-env:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: 3.12
+          environment-file: environment.yml
+          activate-environment: growbikenet
+      - run: mamba env update -n growbikenet -f environment.yml
+      - run: conda list
