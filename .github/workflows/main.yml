@@ -16,9 +16,11 @@ jobs:
       - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: 3.12
-          miniforge-variant: Mambaforge  # uses mamba under the hood
+          miniforge-variant: Mambaforge
+          arch: x64
           environment-file: environment_mac.yml
           activate-environment: growbikenet
+
 
       # Just to be sure, update env (optional, remove if unnecessary)
       - run: conda env update -n growbikenet -f environment_mac.yml
