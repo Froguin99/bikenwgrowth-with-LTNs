@@ -15,5 +15,5 @@ jobs:
           python-version: 3.12
           environment-file: environment.yml
           activate-environment: growbikenet
-      - run: mamba env update -n growbikenet -f environment.yml
+      - run: conda env update -n growbikenet -f environment.yml
       - run: conda list
