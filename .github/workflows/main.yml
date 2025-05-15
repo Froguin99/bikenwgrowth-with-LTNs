@@ -7,13 +7,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest]
     steps:
       - uses: actions/checkout@v3
       - uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: 3.12
-          environment-file: environment.yml
+          environment-file: environment_mac.yml
           activate-environment: growbikenet
-      - run: conda env update -n growbikenet -f environment.yml
+      - run: conda env update -n growbikenet -f environment_mac.yml
       - run: conda list
