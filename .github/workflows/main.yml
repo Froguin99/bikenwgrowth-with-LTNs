@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: 3.12
           miniforge-variant: Mambaforge
+          miniforge-version: 23.3.1-1
           architecture: x64
           environment-file: environment_mac.yml
           activate-environment: growbikenet
