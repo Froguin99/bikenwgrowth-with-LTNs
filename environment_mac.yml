@@ -178,7 +178,7 @@ dependencies:
   - libnetcdf=4.9.2
   - libogg=1.3.5
   - libpng=1.6.44
-  - libpq=17.0
+  - libpq
   - libprotobuf=5.28.2
   - libpysal=4.12.1
   - libre2-11=2024.07.02
@@ -271,7 +271,6 @@ dependencies:
   - rfc3339-validator=0.1.4
   - rfc3986-validator=0.1.1
   - rpds-py=0.20.1
-  - rpy2=3.5.11
   - rtree=1.3.0
   - scikit-learn=1.5.2
   - scipy=1.13.1
