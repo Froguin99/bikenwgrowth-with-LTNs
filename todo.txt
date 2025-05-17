@@ -1,37 +1,38 @@
 MUST
 
+Crash in cell 51
+Remove ukcensusAPI from libaries
+Make a non-LTNs first approach and compare
 
-population coverage
-
-edit plotting to show neighbourhoods and tesselation process
-
-tweak biketrack input to UK context of tags
-
-manage no path found between routenodepairs when node is on one way trunk road 
-
-rustworkx for speeding up routing
-
+Make a "No LTN" version
+	- will have to think about where we have the seed point, we'll need to make the network the same total size?
+Make a "Lots more LTNs" version - LTNs will probably grow as cycling grows...
+	- again think about total size, does it make sense to compare otherwise...
+Double check cost of investment plots
+Make sketches to explain terms and steps etc
+Overlap - show differently (like in the growbike paper)
+Plots - make random a baseline and then show devivation
+make it run for all place in cities.csv
+Store LTNs on a public location to avoid manually having to find the data
+.git folder is huge (11 gb!) - find a way of deleting 
 run a comparison of weighted, weightined with cycle = 0 and unweighted routing. results seem dramatic atm
-
-snap to largest cycle component in cell rather than just nearest? 
-
-Get into format that can be used in later analysis 
-
-Join up to "useful" part of a neighbourhood
-
-Road gradient as a weight (or link gradient too?)
-
 Currently builds on trunk roads - disallow?
 
 
 
 OPTIONAL
-SAVE LTNS + TESSELATION AS NNIDS FOR ANALYSIS
-Circle packing between neighbourhoods
+
+
+Set up fuzzy matching of places to growbike's use of placenames (e.g. Newcastle Upon Tyne --> newcastle)
+population coverage?
+snap to largest cycle component in cell rather than just nearest? 
+Join up to "useful" part of a neighbourhood?
+Road gradient as a weight (or link gradient too?)
+Circle packing between neighbourhoods - very low prioirty
+rustworkx for speeding up routing - very low prioirty
 measure gt-abstract avg degree growth
 make visual distinction between covered and reached pois in cover plots
 add comments to all functions, https://www.datacamp.com/community/tutorials/docstrings-python
-
 split up functions.py?
 existing analysis: union carall and biketrack for biketrackcarall?
 zip result pickles?
@@ -39,6 +40,10 @@ profile code?
 
 
 DONE
+X Clean up .pack filt in .git (way too big)
+X Upload Tyne & Wear Neighbourhoods
+X edit plotting to show neighbourhoods and tesselation process
+X tweak biketrack input to UK context of tags
 X simulate random link growth?
 X random and betwennes finishing a slightly different values...
 X ranking order incorrect, changed to new metric of betwenness 
