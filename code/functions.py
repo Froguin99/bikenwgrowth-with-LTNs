@@ -2690,7 +2690,14 @@ def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_node
     return ebc_ltn, ebc_other, shortest_paths_ltn, shortest_paths_other
 
 
-def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc_ltn, shortest_paths_other, ebc_other, previous_selected_edges=None, ltn_node_pairs=None):
+
+
+
+
+
+
+
+def adjust_triangulation_to_budget_ltn_priority(triangulation_gdf, D, shortest_paths_ltn, ebc_ltn, shortest_paths_other, ebc_other, previous_selected_edges=None, ltn_node_pairs=None):
     """
     Adjust a given triangulation to fit within the specified budget D,
     ensuring that previously selected edges are always included.
@@ -2809,6 +2816,96 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_ltn, ebc
 
 
 
+
+
+
+def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_all, ebc_all, previous_selected_edges=None):
+    """
+    Adjust a given triangulation to fit within the specified budget D,
+    ensuring that previously selected edges are always included.
+    """
+
+    # Build the graph from triangulation
+    G = nx.Graph()
+    for _, row in triangulation_gdf.iterrows():
+        G.add_edge(
+            row['start_osmid'],
+            row['end_osmid'],
+            geometry=row['geometry'],
+            distance=row['distance'],
+            sp_true_distance=row['sp_true_distance'],
+            sp_lts_distance=row['sp_lts_distance'],
+            eucl_dist=row['eucl_dist']
+        )
+
+    total_length = 0
+    selected_edges = set(tuple(sorted(edge)) for edge in (previous_selected_edges or []))  # ensure consistent ordering
+
+    # Include previously selected edges
+    for u, v in selected_edges:
+        if G.has_edge(u, v):
+            total_length += G[u][v]['distance']
+
+    # Track connected node pairs
+    connected_pairs = set()
+
+    # Add node pairs based on centrality
+    for (node1, node2), centrality in sorted(ebc_all.items(), key=lambda x: x[1], reverse=True):
+        if node1 in G.nodes and node2 in G.nodes:
+            edges = shortest_paths_all.get((node1, node2), [])
+            if edges:
+                new_edges = [tuple(sorted((u, v))) for u, v in edges if tuple(sorted((u, v))) not in selected_edges]
+                new_length = sum(G[u][v]['distance'] for u, v in new_edges)
+                if total_length + new_length > D:
+                    continue
+                selected_edges.update(new_edges)
+                total_length += new_length
+                connected_pairs.add((node1, node2))
+
+    # Add unused edges (shouldn't be needed, but you never know...)
+    unused_edges = []
+    for _, row in triangulation_gdf.iterrows():
+        e = tuple(sorted((row['start_osmid'], row['end_osmid'])))
+        if e not in selected_edges:
+            unused_edges.append((row['distance'], e))
+    unused_edges.sort(key=lambda x: x[0])
+
+    for dist, edge in unused_edges:
+        if total_length + dist <= D:
+            selected_edges.add(edge)
+            total_length += dist
+        else:
+            break
+
+    
+    lines = []
+    distances = []
+    start_osmids = []
+    end_osmids = []
+    sp_true_distance = []
+    sp_lts_distance = []
+    eucl_dist = []
+
+    for u, v in selected_edges:
+        lines.append(G[u][v]['geometry'])
+        distances.append(G[u][v]['distance'])
+        start_osmids.append(u)
+        end_osmids.append(v)
+        sp_true_distance.append(G[u][v]['sp_true_distance'])
+        sp_lts_distance.append(G[u][v]['sp_lts_distance'])
+        eucl_dist.append(G[u][v]['eucl_dist'])
+
+    adjusted_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_osmids,
+        'end_osmid': end_osmids,
+        'distance': distances,
+        'sp_true_distance': sp_true_distance,
+        'sp_lts_distance': sp_lts_distance,
+        'eucl_dist': eucl_dist
+    }, crs=triangulation_gdf.crs)
+
+    return adjusted_gdf, selected_edges, connected_pairs
 
 
 
