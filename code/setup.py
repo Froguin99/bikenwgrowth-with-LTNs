@@ -71,7 +71,7 @@ import momepy
 from pyproj import Transformer
 import geopy
 from geopy.distance import geodesic
-import ukcensusapi.Nomisweb as Api
+#import ukcensusapi.Nomisweb as Api # not needed at the moment
 import esda
 from shapely.ops import polygonize
 
