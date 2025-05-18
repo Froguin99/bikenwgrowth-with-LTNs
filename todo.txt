@@ -1,8 +1,5 @@
 MUST
 
-Crash in cell 51
-Remove ukcensusAPI from libaries
-Make a non-LTNs first approach and compare
 
 Make a "No LTN" version
 	- will have to think about where we have the seed point, we'll need to make the network the same total size?
@@ -40,6 +37,8 @@ profile code?
 
 
 DONE
+X Make a non-LTNs first approach and compare
+X Remove ukcensusAPI from libaries
 X Clean up .pack filt in .git (way too big)
 X Upload Tyne & Wear Neighbourhoods
 X edit plotting to show neighbourhoods and tesselation process
