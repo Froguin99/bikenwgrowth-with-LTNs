@@ -1,14 +1,11 @@
 MUST
 
-
 Make a "No LTN" version
 	- will have to think about where we have the seed point, we'll need to make the network the same total size?
 Make a "Lots more LTNs" version - LTNs will probably grow as cycling grows...
 	- again think about total size, does it make sense to compare otherwise...
 Double check cost of investment plots
 Make sketches to explain terms and steps etc
-Overlap - show differently (like in the growbike paper)
-Plots - make random a baseline and then show devivation
 make it run for all place in cities.csv
 Store LTNs on a public location to avoid manually having to find the data
 .git folder is huge (11 gb!) - find a way of deleting 
@@ -37,6 +34,8 @@ profile code?
 
 
 DONE
+X Overlap - show differently (like in the growbike paper)
+X Plots - make random a baseline and then show devivation
 X Make a non-LTNs first approach and compare
 X Remove ukcensusAPI from libaries
 X Clean up .pack filt in .git (way too big)
